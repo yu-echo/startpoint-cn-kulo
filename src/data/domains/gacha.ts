@@ -100,6 +100,78 @@ export function insertPlayerGachaInfoListSync(
     })
 }
 
+export interface GachaSyncResult {
+    players: number
+    added: number
+    removed: number
+}
+
+/** 所有玩家各自的卡池行，用于算全局差异。 */
+export function getGachaRowsByPlayerSync(): Map<number, number[]> {
+    const rows = getDb().prepare(`
+    SELECT player_id, gacha_id FROM players_gacha_info
+    `).all() as { player_id: number, gacha_id: number }[]
+
+    const map = new Map<number, number[]>()
+    for (const row of rows) {
+        const list = map.get(row.player_id)
+        if (list === undefined) map.set(row.player_id, [row.gacha_id])
+        else list.push(row.gacha_id)
+    }
+    return map
+}
+
+export function getPlayerIdsSync(): number[] {
+    return (getDb().prepare(`SELECT id FROM players ORDER BY id`).all() as { id: number }[])
+        .map(row => row.id)
+}
+
+/**
+ * Makes every player's gacha list exactly match the given set.
+ *
+ * 游戏里能看到的卡池 = `players_gacha_info` 的行，所以「统一管理」就是让所有玩家
+ * 的行集合完全一致：缺的补上，多的删掉。新玩家创建后跑一次这个函数即可对齐。
+ *
+ * 注意：删行会一并丢掉该池已积累的 `gacha_exchange_point`。
+ *
+ * @param enabledIds The gacha IDs every player should have.
+ */
+export function syncGachaForAllPlayersSync(
+    enabledIds: readonly number[]
+): GachaSyncResult {
+    const target = new Set(enabledIds.filter(id => Number.isInteger(id) && id > 0))
+    const playerIds = getPlayerIdsSync()
+    if (playerIds.length === 0) return { players: 0, added: 0, removed: 0 }
+
+    return runPersistenceTransactionSync(
+        { domain: "gacha", operation: "sync_gacha_pools" },
+        () => {
+            const existing = getGachaRowsByPlayerSync()
+            const insert = getDb().prepare(`
+            INSERT OR IGNORE INTO players_gacha_info (gacha_id, is_daily_first, is_account_first, gacha_exchange_point, player_id)
+            VALUES (?, 1, 1, 0, ?)
+            `)
+            const remove = getDb().prepare(`
+            DELETE FROM players_gacha_info
+            WHERE player_id = ? AND gacha_id = ?
+            `)
+
+            let added = 0
+            let removed = 0
+            for (const playerId of playerIds) {
+                const have = new Set(existing.get(playerId) ?? [])
+                for (const gachaId of target) {
+                    if (!have.has(gachaId)) added += insert.run(gachaId, playerId).changes
+                }
+                for (const gachaId of have) {
+                    if (!target.has(gachaId)) removed += remove.run(playerId, gachaId).changes
+                }
+            }
+            return { players: playerIds.length, added, removed }
+        }
+    )
+}
+
 /**
  * Updates a player's gacha info.
  * 

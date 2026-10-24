@@ -14,6 +14,7 @@ import { BoxGachaBox, BoxGachaDrawResult, BoxGachaIdReward, BoxGachaRewardTier, 
 import { computeEquipmentGachaMovieEffectsForGacha, EquipmentMovieDrawInput } from "./gacha-equipment-movie";
 import { loadMovieSeeds } from "./gacha-movie-seeds";
 import gachaMovieVariantCatalog from "./gacha-movie-variants";
+import { applyFiveStarRate, getGachaRateOverride } from "./gacha-rate-override";
 
 const GACHA_VERBOSE_LOGS = /^(1|true|yes)$/i.test(process.env.GACHA_VERBOSE_LOGS ?? "");
 
@@ -138,7 +139,13 @@ export function drawGachaWithMetadataSync(
 ): GachaDrawMetadata[] {
     const isCharacterGacha = gacha.type === GachaType.CHARACTER
     const fallbackRankRates = isCharacterGacha ? characterGachaRankRates : equipmentGachaRankRates
-    const rankRates = gacha.rankRates ?? fallbackRankRates
+    // config/gacha-rate.json 可在不改 assets 的前提下整体抬高 5★ 概率（热加载）。
+    const fiveStarPercent = isCharacterGacha ? (getGachaRateOverride()?.fiveStarPercent ?? null) : null
+    const baseRankRates = gacha.rankRates ?? fallbackRankRates
+    const rankRates = fiveStarPercent === null ? baseRankRates : {
+        normal: applyFiveStarRate(baseRankRates.normal, fiveStarPercent),
+        multiGuarantee: applyFiveStarRate(baseRankRates.multiGuarantee, fiveStarPercent),
+    }
 
     const pulls: GachaDrawMetadata[] = []
 

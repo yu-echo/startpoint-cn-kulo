@@ -75,7 +75,7 @@ function isManagementPath(pathname: string): boolean {
         || pathname.startsWith("/seeds/")
         || pathname === "/admin"
         || pathname.startsWith("/admin/")
-        || ["/api/server", "/api/player", "/api/mail", "/api/lookup", "/api/seeds", "/api/news", "/api/mod-admin", "/api/leaderboards"]
+        || ["/api/server", "/api/player", "/api/mail", "/api/lookup", "/api/seeds", "/api/news", "/api/mod-admin", "/api/leaderboards", "/api/gacha-rate", "/api/gacha-pool"]
             .some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 

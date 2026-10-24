@@ -3,6 +3,7 @@ import { Layout, Menu, Grid, Button, Drawer, Space } from "antd"
 import {
     Database,
     Gauge,
+    Layers,
     LogOut,
     Clock3,
     Mail as MailIcon,
@@ -20,6 +21,8 @@ import Accounts from "./pages/Accounts"
 import PlayerDetail from "./pages/PlayerDetail"
 import Mail from "./pages/Mail"
 import Seeds from "./pages/Seeds"
+import GachaRate from "./pages/GachaRate"
+import GachaPool from "./pages/GachaPool"
 import TimeControl from "./pages/TimeControl"
 import Leaderboards from "./pages/Leaderboards"
 import News from "./pages/News"
@@ -35,6 +38,8 @@ const menuItems = [
     { key: "/mail", icon: <MailIcon size={18} />, label: "邮件" },
     { key: "/news", icon: <Newspaper size={18} />, label: "公告" },
     { key: "/seeds", icon: <Database size={18} />, label: "种子管理" },
+    { key: "/gacha", icon: <Sparkles size={18} />, label: "卡池概率" },
+    { key: "/pools", icon: <Layers size={18} />, label: "卡池开关" },
     { key: "/leaderboards", icon: <Trophy size={18} />, label: "排行榜" },
 ]
 
@@ -45,6 +50,8 @@ const pageTitles: Record<string, string> = {
     "/mail": "邮件",
     "/news": "公告",
     "/seeds": "种子管理",
+    "/gacha": "卡池概率",
+    "/pools": "卡池开关",
     "/leaderboards": "排行榜",
 }
 
@@ -140,6 +147,8 @@ export default function App({ dark, onToggleDark }: AppProps) {
                         <Route path="/mail" element={<Mail />} />
                         <Route path="/news" element={<News />} />
                         <Route path="/seeds" element={<Seeds />} />
+                        <Route path="/gacha" element={<GachaRate />} />
+                        <Route path="/pools" element={<GachaPool />} />
                         <Route path="/leaderboards" element={<Leaderboards />} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
