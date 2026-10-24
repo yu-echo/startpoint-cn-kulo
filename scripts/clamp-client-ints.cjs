@@ -1,8 +1,9 @@
 // 一次性脚本：扫描并夹紧所有可能回传给客户端的整型字段（上限 1 亿）。
 // 用法：node scripts/clamp-client-ints.cjs [--apply]
+const path = require('node:path')
 const Database = require('better-sqlite3')
 
-const DB = 'D:/wf-server/startpoint-cn-kulo/.database/wdfp_data.db'
+const DB = process.env.WDFP_DB || path.resolve(__dirname, '../.database/wdfp_data.db')
 const MAX = 100000000
 const APPLY = process.argv.includes('--apply')
 const db = new Database(DB)
