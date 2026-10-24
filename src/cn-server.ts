@@ -46,8 +46,6 @@ import cnTakeOverPlugin from "./routes/cn/takeOver";
 import indexWebPlugin from "./routes/web";
 import indexWebApiPlugin from "./routes/web_api";
 import seedsWebApiPlugin from "./routes/web_api/seeds";
-import gachaRateApiPlugin from "./routes/web_api/gachaRate";
-import gachaPoolApiPlugin from "./routes/web_api/gachaPool";
 import modAdminApiPlugin from "./routes/api/modAdmin";
 import seedValidator from "./lib/seed-validator";
 import reproduceApiPlugin from "./routes/api/reproduce";
@@ -484,8 +482,6 @@ fastify.register(howToGetApiPlugin, { prefix: `${apiPrefix}/how_to_get` });
 fastify.register(indexWebPlugin);
 fastify.register(indexWebApiPlugin, { prefix: "/api" });
 fastify.register(seedsWebApiPlugin, { prefix: "/api/seeds" });
-fastify.register(gachaRateApiPlugin, { prefix: "/api/gacha-rate" });
-fastify.register(gachaPoolApiPlugin, { prefix: "/api/gacha-pool" });
 fastify.register(modAdminApiPlugin, { prefix: "/api/mod-admin" });
 
 const cdnHost = process.env.CN_LISTEN_HOST || "localhost";
