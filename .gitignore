@@ -91,3 +91,7 @@ mod-tools-upstream/
 
 # Personal local workspace
 弹国服/
+
+# 一次性联机/加载探测脚本（含内网地址，本地保留不入库）
+probe-load.mjs
+tmp-probe-tunnel.mjs
