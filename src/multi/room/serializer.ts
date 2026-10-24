@@ -20,6 +20,17 @@ export function getDisplayHost(): string {
     return "127.0.0.1"
 }
 
+/** 客户端实际该连的端口。
+ *  走内网穿透时，对外端口（樱花给的是 24258）和本机监听端口（8003）不是同一个，
+ *  这里必须宣告对外端口，否则外网客户端会拿着一个没人监听的端口去连——表现就是
+ *  「局域网能联机、外网连不上」。局域网玩家走同一个公网端点也照样能连。 */
+export function getDisplayPort(): number {
+    const raw = (process.env.SESSION_PUBLIC_PORT || "").trim()
+    const n = Number.parseInt(raw, 10)
+    if (Number.isFinite(n) && n > 0 && n < 65536) return n
+    return Number.parseInt(process.env.SESSION_PORT || "8003", 10)
+}
+
 export interface SerializedRoom {
     access_token: string;
     category_id: number;
@@ -115,7 +126,7 @@ export function serializeRoom(room: RoomPublicState | MultiRoom, viewerPlayerId?
 export function serializeRoomConnection(room: Pick<RoomPublicState, "category" | "host_entry_time"
     | "quest_id" | "raising_state" | "room_number" | "room_sequence" | "share_room_options">): SerializedRoomConnection {
     const displayHost = getDisplayHost();
-    const sessionPort = parseInt(process.env.SESSION_PORT || "8003");
+    const sessionPort = getDisplayPort();
     return {
         application_update_url: "",
         category_id: room.category,

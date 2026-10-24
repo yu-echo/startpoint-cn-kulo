@@ -38,6 +38,43 @@ export function joinCdnPath(baseUrl: string, ...segments: string[]): string {
 const CDN_BASE = process.env.CDN_BASE_URL
     ? normalizeCdnBaseUrl(process.env.CDN_BASE_URL)
     : undefined;
+
+/**
+ * CDN 分片：把大目录拆到多个 Pages 项目，绕开「单次部署必须一次传完」的限制。
+ * 环境变量形如:
+ *   {"archive-common-full":["https://wf-cdn-1.pages.dev/patch/cn","https://wf-cdn-2.pages.dev/patch/cn"],
+ *    "archive-medium-full":["https://wf-cdn-3.pages.dev/patch/cn"]}
+ * 多元素 = 该目录按文件名（默认 sort）排序后均分；单元素 = 整个目录换前缀。
+ * 排序规则必须与 build-parts.mjs 一致，否则客户端会拿到错的分片。
+ */
+const CDN_SPLIT: Record<string, string[]> = (() => {
+    const raw = process.env.CDN_SPLIT?.trim();
+    if (!raw) return {};
+    try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const out: Record<string, string[]> = {};
+        for (const [key, value] of Object.entries(parsed)) {
+            const list = (Array.isArray(value) ? value : [value])
+                .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+                .map(item => normalizeCdnBaseUrl(item));
+            if (list.length > 0) out[key] = list;
+        }
+        return out;
+    } catch (e) {
+        console.error("[CDN] CDN_SPLIT 解析失败，已忽略:", (e as Error).message);
+        return {};
+    }
+})();
+
+/** 按文件在目录里的序号挑选分片前缀。 */
+function cdnBaseFor(subdir: string, baseUrl: string, index: number, total: number): string {
+    const bases = CDN_SPLIT[subdir];
+    if (!bases || bases.length === 0) return baseUrl;
+    if (bases.length === 1) return bases[0];
+    const per = Math.ceil(total / bases.length);
+    return bases[Math.min(bases.length - 1, Math.floor(index / per))];
+}
+
 /** Clears short-lived ZIP metadata after an in-process asset publication. */
 export function invalidateAssetArchiveCatalog(directory?: string): void {
     invalidateZipCache(directory);
@@ -123,10 +160,12 @@ function entityListsDirName(): string {
 
 export function getVersionInfo(baseUrl: string, totalSize: number, device?: string) {
     const el = entityListsDirName();
-    const entityBase = `${joinCdnPath(baseUrl, el, ...(el === "entities" ? ["files"] : []))}/`;
+    // 实体清单可以单独放到某个分片上，避免大文件挤在主通道里。
+    const entityHost = CDN_SPLIT[el]?.[0] ?? baseUrl;
+    const entityBase = `${joinCdnPath(entityHost, el, ...(el === "entities" ? ["files"] : []))}/`;
     return {
         base_url: entityBase,
-        files_list: joinCdnPath(baseUrl, el, getEntityListName(device)),
+        files_list: joinCdnPath(entityHost, el, getEntityListName(device)),
         total_size: totalSize,
         delayed_assets_size: 0
     };
@@ -135,8 +174,10 @@ export function getVersionInfo(baseUrl: string, totalSize: number, device?: stri
 function buildArchiveList(baseUrl: string, cdnDir: string, subdir: string): { location: string; size: number; sha256: string }[] {
     const dir = path.join(cdnDir, subdir);
     try {
-        return getAssetArchiveMetadata(dir).map(archive => ({
-            location: joinCdnPath(baseUrl, subdir, archive.filename),
+        // 排序必须确定：CDN_SPLIT 按序号分片，排序一变客户端就下错分片。
+        const archives = [...getAssetArchiveMetadata(dir)].sort((a, b) => (a.filename < b.filename ? -1 : a.filename > b.filename ? 1 : 0));
+        return archives.map((archive, index) => ({
+            location: joinCdnPath(cdnBaseFor(subdir, baseUrl, index, archives.length), subdir, archive.filename),
             size: archive.size,
             sha256: ""
         }));
@@ -321,7 +362,7 @@ function buildDiffList(
         try {
             for (const { archive, key } of sortDiffArchives(getAssetArchiveMetadata(dir))) {
                 if (!groups.has(key.to)) groups.set(key.to, { original_version: key.from, archive: [] });
-                groups.get(key.to)!.archive.push({ location: joinCdnPath(baseUrl, subdir, archive.filename), size: archive.size, sha256: "" });
+                groups.get(key.to)!.archive.push({ location: joinCdnPath(cdnBaseFor(subdir, baseUrl, 0, 1), subdir, archive.filename), size: archive.size, sha256: "" });
             }
         } catch (e) {
             console.error(`[CDN] buildDiffList failed for ${subdir}:`, (e as Error).message);
