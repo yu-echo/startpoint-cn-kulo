@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify"
 import { PrepareBody, SummonBody, RestoreRoomBody, ShareRoomBody } from "../types"
 import { generateDataHeaders } from "../../utils"
-import { getDisplayHost } from "../room/serializer"
+import { getDisplayHost, getDisplayPort } from "../room/serializer"
 import { buildNpcMates } from "../npc/builder"
 import { gameVerboseLog } from "../../lib/game-logging"
 import { isMode15RoomClosed } from "../mode15-room-gate"
@@ -58,7 +58,7 @@ async function executeConnection(kind: "room.prepare" | "room.restore", payload:
 function connectionData(connection: RoomConnectionState, disabled = false) {
     return { application_update_url: "", ...connection,
         ip_address: disabled ? "" : getDisplayHost(),
-        port: disabled ? 0 : parseInt(process.env.SESSION_PORT || "8003"), is_pickup: null }
+        port: disabled ? 0 : getDisplayPort(), is_pickup: null }
 }
 function missingConnection(roomNumber: string): RoomConnectionState {
     return { category_id: 0, host_entry_time: 0, quest_id: 0, raising_state: 9,

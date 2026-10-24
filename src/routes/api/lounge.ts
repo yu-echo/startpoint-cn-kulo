@@ -10,7 +10,7 @@ import { canParticipateInLounge as canParticipate } from "../../lounge/eligibili
 import { getRoomCommandGateway } from "../../multi/coordinator/default-runtime"
 import { RoomCommandError, createRoomCommandId } from "../../multi/coordinator/command-protocol"
 import type { LoungeProjection, LoungeDecisionPayload, LoungeDecisionResult } from "../../multi/coordinator/lounge-command-handlers"
-import { getDisplayHost } from "../../multi/room/serializer"
+import { getDisplayHost, getDisplayPort } from "../../multi/room/serializer"
 import { generateDataHeaders } from "../../utils"
 import { buildLoungeDisbandedConnectionData } from "../../lounge/protocol"
 
@@ -64,7 +64,7 @@ function connectionData(room: LoungeProjection) {
         application_update_url: "",
         ip_address: getDisplayHost(),
         lounge_number: room.number,
-        port: Number.parseInt(process.env.SESSION_PORT || "8003", 10),
+        port: getDisplayPort(),
         raising_state: room.raisingState,
     }
 }

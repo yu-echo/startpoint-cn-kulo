@@ -32,7 +32,6 @@ import { quiesceDurableOwnerEvents, drainDurableOwnerEvents } from "./multi/coor
 import { installLocalClientCompat } from "./lib/local-client-compat";
 import { getPatchManifest } from "./lib/version";
 import { installCustomCdnResourceRoutes } from "./lib/custom-cdn-resource-routes";
-import { resolvePlainFileInside, sendFileStream } from "./lib/file-download";
 import { trustProxySetting } from "./lib/client-address";
 import { parseCrashReportBody, crashReportText, createCrashLogRecord } from "./lib/crash-report";
 import { installProcessGuards } from "./lib/process-guards";
@@ -47,6 +46,8 @@ import cnTakeOverPlugin from "./routes/cn/takeOver";
 import indexWebPlugin from "./routes/web";
 import indexWebApiPlugin from "./routes/web_api";
 import seedsWebApiPlugin from "./routes/web_api/seeds";
+import gachaRateApiPlugin from "./routes/web_api/gachaRate";
+import gachaPoolApiPlugin from "./routes/web_api/gachaPool";
 import modAdminApiPlugin from "./routes/api/modAdmin";
 import seedValidator from "./lib/seed-validator";
 import reproduceApiPlugin from "./routes/api/reproduce";
@@ -248,6 +249,21 @@ fastify.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "st
     }
 );
 fastify.addContentTypeParser("application/json", { parseAs: "string" }, jsonParser);
+
+// 兜底：客户端重试时偶尔会换成 application/octet-stream 等未注册的 Content-Type。
+// Fastify 默认直接 415，客户端拿到 415 后不会重试，界面就永远停在加载条上
+// （2026-10-24 日志里 asset/get_path 出现过一次 415）。这里统一按 JSON 尽力解析，
+// 空 body 一律给 {}，保证这类请求能走到业务逻辑而不是被协议层挡掉。
+fastify.addContentTypeParser("*", { parseAs: "string" }, (request: FastifyRequest, body: string, done) => {
+    if (request.routeOptions.url === "/crash") return done(null, parseCrashReportBody(body));
+    const text = typeof body === "string" ? body.trim() : "";
+    if (!text) return done(null, {});
+    try {
+        done(null, JSON.parse(text));
+    } catch {
+        done(null, {});
+    }
+});
 
 initializePlayerLogin(viewerId => {
     void (async () => await getRoomCommandGateway().execute("runtime.disconnect", { viewerId }))().catch(async error => {
@@ -468,6 +484,8 @@ fastify.register(howToGetApiPlugin, { prefix: `${apiPrefix}/how_to_get` });
 fastify.register(indexWebPlugin);
 fastify.register(indexWebApiPlugin, { prefix: "/api" });
 fastify.register(seedsWebApiPlugin, { prefix: "/api/seeds" });
+fastify.register(gachaRateApiPlugin, { prefix: "/api/gacha-rate" });
+fastify.register(gachaPoolApiPlugin, { prefix: "/api/gacha-pool" });
 fastify.register(modAdminApiPlugin, { prefix: "/api/mod-admin" });
 
 const cdnHost = process.env.CN_LISTEN_HOST || "localhost";
@@ -482,15 +500,21 @@ installCustomCdnResourceRoutes(fastify, {
     cdnRoot: path.isAbsolute(cdnDir) ? cdnDir : path.join(__dirname, "..", cdnDir),
 });
 
-// Serve patch archive files for asset update
-fastify.get("/patch/cn/asset-patch/active/:file", async (request, reply) => {
-    const { file } = request.params as { file: string };
-    const patchFile = resolvePlainFileInside(path.join(__dirname, "..", "assets", "asset-patch", "active"), file);
-    if (patchFile && sendFileStream(reply, patchFile, "application/zip")) {
-        return reply;
-    }
-    return reply.status(404).send("Not Found");
-});
+// Serve patch archive files for asset update.
+//
+// 这里必须挂 @fastify/static，而不是自己 createReadStream 直出：
+// 底层的 send 库自带 Range / If-Range / 416 / ETag / Last-Modified，
+// 和 Go 的 http.ServeContent 是同一层职责。之前手写的 sendFileStream 只设
+// Content-Length 就流式输出，完全不看 Range 头 —— 掉线后大包只能从字节 0 重来。
+// 目录不存在时不要注册，@fastify/static 会直接抛错拖垮启动。
+const patchActiveDir = path.join(__dirname, "..", "assets", "asset-patch", "active");
+if (existsSync(patchActiveDir)) {
+    fastify.register(fastifyStatic, {
+        root: patchActiveDir,
+        prefix: "/patch/cn/asset-patch/active",
+        decorateReply: false,
+    });
+}
 
 fastify.register(fastifyStatic, {
     root: path.isAbsolute(cdnDir) ? cdnDir : path.join(__dirname, "..", cdnDir),
