@@ -56,6 +56,30 @@ export function getOnlinePlayerCount(now = Date.now()): number {
     return lastSeenByViewerId.size
 }
 
+/**
+ * Same window and cleanup as getOnlinePlayerCount, but skips one viewer.
+ *
+ * Used by the multiplayer AI fallback to answer "is anyone else around who
+ * could still join this room?" — the host's own activity must not count, or a
+ * lone host on an empty server would always look like a populated server.
+ */
+export function getOnlinePlayerCountExcluding(excludeViewerId: unknown, now = Date.now()): number {
+    const excluded = normalizeViewerId(excludeViewerId)
+    const cutoff = now - ONLINE_WINDOW_MS
+    let count = 0
+    for (const [viewerId, lastSeen] of lastSeenByViewerId) {
+        if (excluded !== null && viewerId === excluded) continue
+        if (lastSeen < cutoff) continue
+        count++
+    }
+    return count
+}
+
+/** Whether any player other than `excludeViewerId` was active recently. */
+export function hasOtherOnlinePlayers(excludeViewerId: unknown, now = Date.now()): boolean {
+    return getOnlinePlayerCountExcluding(excludeViewerId, now) > 0
+}
+
 export const ONLINE_PLAYER_WINDOW_MS = ONLINE_WINDOW_MS
 
 /** Test helper; not used by runtime code. */

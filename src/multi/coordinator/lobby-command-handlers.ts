@@ -13,6 +13,7 @@ import { embeddedMultiCoordinator } from "./embedded"
 import type { RoomCommandContext, RoomCommandExecutor } from "./command-executor"
 import { isRealtimeOwnerChild } from "./runtime-role"
 import { getPlayerBusinessFacts, refreshRealtimePlayerFacts } from "./business-facts"
+import { scheduleAutoAiFill } from "../ai-fill"
 
 export interface LobbyRoomProjection extends RoomPublicState {
     identity: RoomCommandIdentity
@@ -121,6 +122,8 @@ export function registerLobbyCommandHandlers(executor: RoomCommandExecutor): voi
         await cleanupHosted(p.viewerId, context)
         assertHostFacts()
         const room = createRoom(p.viewerId, p.playerId, p.partyId, p.category, p.questId, 0, p.profileMainCharacterId)
+        // 人少服开关：建房即进入 AI 补位模式，单人也能开局。默认关闭。
+        scheduleAutoAiFill(room.room_number)
         return project(room, p.viewerId)
     })
     executor.register("lobby.select", (raw, context) => {
