@@ -23,7 +23,12 @@ process.env.NPC_READY_DELAY_MS = '10000'
 // command serialization, Enter/Welcome, recruitment and broadcasting remain
 // the actual compiled server code; no native client or database is required.
 const stubs = new Map([
-    [path.join(root, 'out/lib/online-presence.js'), { markPlayerOnlineFromTcp() {} }],
+    [path.join(root, 'out/lib/online-presence.js'), {
+        markPlayerOnlineFromTcp() {},
+        // 测试环境没有真实在线玩家，固定走「只有房主」短超时档
+        getOnlinePlayerCountExcluding: () => 0,
+        hasOtherOnlinePlayers: () => false,
+    }],
     [path.join(root, 'out/data/domains/player.js'), {
         getPlayerSync: () => ({ partySlot: 1 }),
         updatePlayerPartySlotAsync: async () => {},

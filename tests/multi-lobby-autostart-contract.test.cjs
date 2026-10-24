@@ -16,7 +16,12 @@ process.env.MULTI_REALTIME_OWNER_CHILD = '0'
 // closed if a new production dependency tries to open a database.
 const stubs = new Map([
     [compiled('lib/assets.js'), { getQuestFromCategorySync: () => undefined }],
-    [compiled('lib/online-presence.js'), { markPlayerOnlineFromTcp() {} }],
+    [compiled('lib/online-presence.js'), {
+        markPlayerOnlineFromTcp() {},
+        // AI 补位超时按在线人数选档；契约测试固定走「无人在线」短档
+        getOnlinePlayerCountExcluding: () => 0,
+        hasOtherOnlinePlayers: () => false,
+    }],
     [compiled('multi/coordinator/business-handlers.js'), {
         handleRealtimeBusiness: async kind => {
             if (kind === 'presence.touch') return null

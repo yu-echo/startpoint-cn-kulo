@@ -23,11 +23,14 @@ export function aiFillTimeoutMs(): number {
  * 全服只有房主一人时的等待时长。默认 3 秒。
  *
  * 没别人在线就没有“再等一会儿会有人进来”的可能，早补早开局。
- * 设成和 MULTI_AI_FILL_TIMEOUT_MS 相同的值即可退回固定等待。
+ * 未配置时回落到 MULTI_AI_FILL_TIMEOUT_MS —— 即“只配一个值 = 不分档”，
+ * 这样既有部署和测试只设一个变量也能照常工作。
  */
 export function aiFillAloneTimeoutMs(): number {
-    const parsed = Number.parseInt(process.env.MULTI_AI_FILL_ALONE_TIMEOUT_MS || "3000", 10)
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 3_000
+    const raw = process.env.MULTI_AI_FILL_ALONE_TIMEOUT_MS
+    if (raw === undefined || raw.trim() === "") return aiFillTimeoutMs()
+    const parsed = Number.parseInt(raw, 10)
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : aiFillTimeoutMs()
 }
 
 /**
