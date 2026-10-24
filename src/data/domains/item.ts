@@ -1,4 +1,5 @@
 import { cachedStatement } from "../../lib/cached-statement"
+import { clampClientInt } from "../../lib/client-int-limit"
 import { getDb } from "../db";
 import { RawPlayerItem } from "../types";
 import { runPersistenceTransactionSync } from "../../lib/persistence-coordinator";
@@ -171,7 +172,7 @@ export function updatePlayerItemSync(
     UPDATE players_items
     SET amount = ?
     WHERE player_id = ? AND id = ?
-    `).run(amount, playerId, Number(itemId))
+    `).run(clampClientInt(amount), playerId, Number(itemId))
 }
 
 /**
@@ -213,7 +214,8 @@ export function givePlayerItemSync(
 ): number {
     return runPersistenceTransactionSync({ domain: "player", playerId, operation: "give_player_item" }, () => {
         const ownedAmount = getPlayerItemSync(playerId, itemId)
-        const newAmount = (ownedAmount ?? 0) + giveAmount
+        // 持有量同样受 int32 约束，否则 item_list 里的 amount 会顶穿客户端解析。
+        const newAmount = clampClientInt((ownedAmount ?? 0) + giveAmount)
         if (ownedAmount === null) insertPlayerItemSync(playerId, itemId, newAmount)
         else updatePlayerItemSync(playerId, itemId, newAmount)
         recordPlayerCollectedItemSync(playerId, itemId, giveAmount)

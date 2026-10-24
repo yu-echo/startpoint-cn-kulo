@@ -1,4 +1,5 @@
 import { cachedStatement } from "../../lib/cached-statement"
+import { clampClientInt } from "../../lib/client-int-limit"
 import { getPlayerPortableDegreesSync, grantPlayerDegreeSync, validatePortableDegreeList } from "./degree";
 import { Player, RawPlayer, MergedPlayerData, PartyCategory, PlayerPartyGroup, Account, PlayerParty, DailyChallengePointListEntry, DailyChallengePointListCampaign, RawDailyChallengePointListEntry, RawDailyChallengePointListCampaign, PlayerRushEventPlayedParty, RawPlayerRushEventPlayedParty, UserRushEventPlayedParty } from "../types";
 import { getServerDate } from "../../utils";
@@ -1075,6 +1076,16 @@ export function insertDefaultPlayerSync(
 }
 
 /**
+ * 客户端数值上限。业务层允许更大，但写库前必须压到 int32 安全区内。
+ * 见 lib/client-int-limit.ts：≥2^31 会被编码成 float64，客户端强类型解码失败 → C8700。
+ */
+const CLAMPED_INT_COLUMNS = new Set([
+    'vmoney', 'free_vmoney', 'rank_point', 'star_crumb', 'bond_token', 'free_mana', 'paid_mana',
+    'boost_point', 'boss_boost_point', 'total_mana_obtained',
+    'total_stamina_used', 'total_powerflips', 'total_dashes', 'max_combo_achieved', 'total_login_days',
+])
+
+/**
  * Updates a player within the database.
  * 
  * @param player The properties of the player to change. Id must always be present.
@@ -1135,7 +1146,14 @@ export function updatePlayerSync(
                 if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
                     throw new Error(`Invalid exp pool value for player ${id}: ${String(value)}`)
                 }
-                values.push(Math.max(0, value))
+                values.push(clampClientInt(value))
+            } else if (CLAMPED_INT_COLUMNS.has(mapped)) {
+                // 客户端是 Flash/AIR，所有数值走 int32；一旦 ≥ 2^31
+                // 就会被编码成 float64 并以 C8700「data.user_info.xxx」拒绝整包响应。
+                if (typeof value !== 'number' || !Number.isFinite(value)) {
+                    throw new Error(`Invalid numeric value for player ${id} ${mapped}: ${String(value)}`)
+                }
+                values.push(clampClientInt(value))
             } else {
                 values.push(value)
             }
