@@ -59,45 +59,49 @@ export function autoAiFillEnabled(): boolean {
     return raw === "1" || raw === "true" || raw === "on" || raw === "yes"
 }
 
-/** 建房后等多久才补 AI。0（默认）= 房主进入大厅即补。 */
-export function autoAiFillDelayMs(): number {
-    const parsed = Number.parseInt(process.env.MULTI_AUTO_AI_FILL_DELAY_MS || "0", 10)
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
+/**
+ * 建房后等多久才补 AI。
+ *
+ * - **未配置（默认）** → 返回 null，走和随机招募兜底一样的动态档位：
+ *   有其他人在线等 `MULTI_AI_FILL_TIMEOUT_MS`（10 秒），全服只有房主
+ *   等 `MULTI_AI_FILL_ALONE_TIMEOUT_MS`（3 秒），并保留「有人刚好上线就顺延一次」。
+ *   这是默认行为的来源：既不会一建房就把席位锁死，也不用玩家自己去点招募。
+ * - **显式配置** → 用这个固定毫秒数；`0` 表示建房即进 NPC 模式。
+ */
+export function autoAiFillDelayMs(): number | null {
+    const raw = (process.env.MULTI_AUTO_AI_FILL_DELAY_MS || "").trim()
+    if (raw === "") return null
+    const parsed = Number.parseInt(raw, 10)
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
 }
 
-const autoAiFillTimers = new Map<string, NodeJS.Timeout>()
-
 /**
- * 建房后调用。延迟为 0 时只标记 is_npc_mode，实际的 COM 入场交给
- * lobby 的房主进入钩子（handleEnter → recruitNpcMatesForRoom），
- * 那里已经有 500ms 的稳定延迟，不会和 TCP 建连抢时序。
+ * 建房后调用。未显式配置延迟时，与随机招募兜底共用同一个定时器表
+ * （`aiFallbackTimers`），因此两者不会各排一次；随后的 `room.share`
+ * 即使发布了随机招募，`scheduleAiFallback` 也会因为已排程而直接跳过。
+ *
+ * 延迟为 0 时只标记 is_npc_mode，实际的 COM 入场交给 lobby 的房主进入钩子
+ * （handleEnter → recruitNpcMatesForRoom），那里已经有 500ms 的稳定延迟，
+ * 不会和 TCP 建连抢时序。
  */
 export function scheduleAutoAiFill(roomNumber: string): void {
     if (!autoAiFillEnabled()) return
-    if (autoAiFillTimers.has(roomNumber)) return
+    if (aiFallbackTimers.has(roomNumber)) return
     const room = getRoom(roomNumber)
     if (!room) return
-    const scheduledInstanceId = room.lifecycle.instanceId
-    const delayMs = autoAiFillDelayMs()
-    if (delayMs <= 0) {
+    const fixedDelayMs = autoAiFillDelayMs()
+    if (fixedDelayMs === 0) {
         room.is_npc_mode = true
         return
     }
-    const timer = createRealtimeMaintenanceTimer(() => setTimeout(() => {
-        autoAiFillTimers.delete(roomNumber)
-        void embeddedMultiCoordinator.enqueueRoomCommand(roomNumber, () => {
-            const current = getRoom(roomNumber)
-            if (!current
-                || current.lifecycle.instanceId !== scheduledInstanceId
-                || current.lifecycle.phase !== "LOBBY") return
-            const { recruitNpcMatesForRoom } = require("./tcp/lobby") as typeof import("./tcp/lobby")
-            current.is_npc_mode = true
-            recruitNpcMatesForRoom(roomNumber)
-            console.log(`[MULTI-AI] auto fill triggered room=${roomNumber} delayMs=${delayMs}`)
-        }).catch(error => console.error(`[MULTI-AI] auto fill failed room=${roomNumber}`, error))
-    }, delayMs))
-    timer.unref()
-    autoAiFillTimers.set(roomNumber, timer)
+    const hostViewerId = room.host_viewer_id
+    const waitingForOthers = hasOtherOnlinePlayers(hostViewerId)
+    const timeoutMs = fixedDelayMs
+        ?? (waitingForOthers ? aiFillTimeoutMs() : aiFillAloneTimeoutMs())
+    armAiFallback(roomNumber, room.lifecycle.instanceId, hostViewerId, timeoutMs,
+        // 只有动态短档才允许顺延一次，且只在有人刚好上线时。
+        fixedDelayMs === null && !waitingForOthers && aiFillTimeoutMs() > timeoutMs,
+        "auto")
 }
 
 export function scheduleAiFallback(roomNumber: string): void {
@@ -120,6 +124,7 @@ function armAiFallback(
     hostViewerId: number,
     timeoutMs: number,
     extendOnActivity: boolean,
+    label: "fallback" | "auto" = "fallback",
 ): void {
     const timer = createRealtimeMaintenanceTimer(() => setTimeout(() => {
         aiFallbackTimers.delete(roomNumber)
@@ -133,7 +138,7 @@ function armAiFallback(
                 && room.lobby_generation === 0) {
                 const extendedMs = aiFillTimeoutMs()
                 console.log(`[MULTI-AI] extended wait for online players room=${roomNumber} fromMs=${timeoutMs} toMs=${extendedMs}`)
-                armAiFallback(roomNumber, scheduledInstanceId, hostViewerId, extendedMs, false)
+                armAiFallback(roomNumber, scheduledInstanceId, hostViewerId, extendedMs, false, label)
                 return
             }
         }
@@ -154,7 +159,7 @@ function armAiFallback(
             room.is_npc_mode = true
             stopRandomRecruitment(roomNumber)
             recruitNpcMatesForRoom(roomNumber)
-            console.log(`[MULTI-AI] fallback triggered room=${roomNumber} timeoutMs=${timeoutMs}`)
+            console.log(`[MULTI-AI] ${label} triggered room=${roomNumber} timeoutMs=${timeoutMs}`)
         }).catch(error => console.error(`[MULTI-AI] fallback failed room=${roomNumber}`, error))
     }, timeoutMs))
     timer.unref()
