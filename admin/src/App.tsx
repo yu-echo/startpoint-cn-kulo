@@ -6,6 +6,7 @@ import { getLoginExpired, setLoginExpired, subscribeLoginExpired } from "./api/a
 import { allowAdminUnload, requestAdminLeave, useAdminBeforeUnload, useAdminEditGuard } from "./lib/editGuard"
 import {
     Database,
+    Dices,
     Gauge,
     LogOut,
     Mail as MailIcon,
@@ -34,6 +35,7 @@ const Leaderboards = createAsyncPage(() => import("./pages/Leaderboards"), "Lead
 const News = createAsyncPage(() => import("./pages/News"), "News")
 const ContentOperations = createAsyncPage(() => import("./pages/ContentOperations"), "ContentOperations")
 const TownThemes = createAsyncPage(() => import("./pages/TownThemes"), "TownThemes")
+const GachaRate = createAsyncPage(() => import("./pages/GachaRate"), "GachaRate")
 
 const { Sider, Content, Header } = Layout
 const { useBreakpoint } = Grid
@@ -42,6 +44,7 @@ const navigationPages = [
     { key: "/", icon: <Gauge size={18} />, label: "总览" },
     { key: "/content", icon: <Sparkles size={18} />, label: "内容运营" },
     { key: "/town-themes", icon: <Palette size={18} />, label: "主城外观" },
+    { key: "/gacha-rate", icon: <Dices size={18} />, label: "卡池概率" },
     { key: "/accounts", icon: <Users size={18} />, label: "账号 / 存档" },
     { key: "/mail", icon: <MailIcon size={18} />, label: "邮件" },
     { key: "/gifts", icon: <MailIcon size={18} />, label: "礼包码" },
@@ -53,7 +56,7 @@ const navigationPages = [
 
 const menuItems = [
     navigationPages[0],
-    { type: "group" as const, label: "日常运营", children: navigationPages.filter(page => ["/content", "/town-themes", "/news", "/mail", "/gifts", "/leaderboards"].includes(page.key)) },
+    { type: "group" as const, label: "日常运营", children: navigationPages.filter(page => ["/content", "/town-themes", "/gacha-rate", "/news", "/mail", "/gifts", "/leaderboards"].includes(page.key)) },
     { type: "group" as const, label: "玩家管理", children: navigationPages.filter(page => page.key === "/accounts") },
     { type: "group" as const, label: "维护工具", children: navigationPages.filter(page => ["/seeds", "/maintenance"].includes(page.key)) },
 ]
@@ -62,6 +65,7 @@ const pageTitles: Record<string, string> = {
     "/": "总览",
     "/content": "内容运营",
     "/town-themes": "主城外观",
+    "/gacha-rate": "卡池概率",
     "/accounts": "账号 / 存档",
     "/mail": "邮件",
     "/gifts": "礼包码",
@@ -194,6 +198,7 @@ export default function App({ dark, onToggleDark }: AppProps) {
                         <Route path="/maintenance" element={<DataMaintenance />} />
                         <Route path="/content" element={<ContentOperations />} />
                         <Route path="/town-themes" element={<TownThemes />} />
+                        <Route path="/gacha-rate" element={<GachaRate />} />
                         <Route path="/accounts" element={<Accounts />} />
                         <Route path="/players/:playerId" element={<PlayerDetail />} />
                         <Route path="/mail" element={<Mail />} />

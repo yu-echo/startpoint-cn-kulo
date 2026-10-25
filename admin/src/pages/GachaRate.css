@@ -1,0 +1,24 @@
+.gacha-rate-control {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+}
+
+/* 生效概率是这张表里最该被看见的一列 */
+.gacha-rate-effective {
+    color: var(--admin-accent, #d4380d);
+}
+
+.gacha-rate-rules {
+    margin: 4px 0 0;
+    padding-left: 18px;
+}
+
+.gacha-rate-rules li + li {
+    margin-top: 4px;
+}
+
+.gacha-rate-note {
+    margin-bottom: 12px !important;
+}

@@ -9,6 +9,7 @@ import diagnosticsApiPlugin from "./diagnostics"
 import contentApiPlugin from "./content"
 import townThemeApiPlugin from "./town-theme"
 import giftApiPlugin from "./gift"
+import gachaRateApiPlugin from "./gacha-rate"
 
 const routes = async (fastify: FastifyInstance) => {
     fastify.register(require('@fastify/multipart'), {
@@ -33,6 +34,7 @@ const routes = async (fastify: FastifyInstance) => {
     fastify.register(contentApiPlugin, { prefix: "/content" })
     fastify.register(townThemeApiPlugin, { prefix: "/server/town-theme" })
     fastify.register(giftApiPlugin, { prefix: "/server/gifts" })
+    fastify.register(gachaRateApiPlugin, { prefix: "/server/gacha-rate" })
 }
 
 export default routes;
