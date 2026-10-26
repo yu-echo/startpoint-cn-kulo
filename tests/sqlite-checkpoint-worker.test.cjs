@@ -5,9 +5,24 @@ const os = require('node:os')
 const path = require('node:path')
 const { setTimeout: delay } = require('node:timers/promises')
 const Database = require('better-sqlite3')
+const workerThreads = require('node:worker_threads')
+const sqliteSettings = require('../out/lib/sqlite-settings')
 
 process.env.SQLITE_DIAGNOSTICS = 'true'
 const checkpoint = require('../out/lib/sqlite-checkpoint-worker')
+// The worker now only backfills. Observe its actual messages while the parent
+// reports maintenance through its own state counters.
+function startObservedCheckpoint(databasePath, settings, callbacks, fixture) {
+    const NativeWorker = workerThreads.Worker
+    workerThreads.Worker = class extends NativeWorker {
+        constructor(filename, options) {
+            super(filename, options)
+            this.on('message', message => fixture.messages.push(message))
+        }
+    }
+    try { checkpoint.startSqliteCheckpointWorker(databasePath, settings, callbacks) }
+    finally { workerThreads.Worker = NativeWorker }
+}
 const { collectMemoryDiagnostics } = require('../out/lib/memory-diagnostics')
 const environment = {
     SQLITE_CHECKPOINT_WORKER: '1',
@@ -86,7 +101,7 @@ test('checkpoint worker handles passive backlog, pinned readers, WAL reuse and l
             assert.equal(fs.existsSync(path.join(directory, 'disabled.db')), false)
             await checkpoint.stopSqliteCheckpointWorker()
         })
-        await t.test('startup checkpoints existing WAL without truncating or losing committed rows', async () => {
+        await t.test('startup retains a WAL below 2 GiB despite legacy truncate thresholds', async () => {
             const db = open(path.join(directory, 'backlog.db'))
             let ready = 0, stopped = 0
             try {
@@ -99,7 +114,7 @@ test('checkpoint worker handles passive backlog, pinned readers, WAL reuse and l
                 })
                 await until(() => state().completed > before, 'startup passive checkpoint')
                 assert.equal(fs.statSync(db.name + '-wal').size, walBytes,
-                    'an online checkpoint must retain the physical WAL even above legacy truncate thresholds')
+                    'a WAL below the reclamation target must retain its physical space despite legacy truncate thresholds')
                 assertPassiveDiagnostics()
                 assert.equal(ready, 1)
                 await until(() => {
@@ -122,7 +137,7 @@ test('checkpoint worker handles passive backlog, pinned readers, WAL reuse and l
                 db.close()
             }
         })
-        await t.test('pinned reader allows partial checkpoints and writes, then catches up without truncation and reuses WAL', async () => {
+        await t.test('pinned reader allows partial checkpoints and writes, then catches up and reuses a WAL below 2 GiB', async () => {
             const db = open(path.join(directory, 'reader.db'))
             const reader = new Database(db.name, { readonly: true })
             try {
@@ -172,6 +187,89 @@ test('checkpoint worker handles passive backlog, pinned readers, WAL reuse and l
                 reader.close()
                 await checkpoint.stopSqliteCheckpointWorker()
                 db.close()
+            }
+        })
+        await t.test('real maintenance BEGIN busy preserves PASSIVE ownership and a later checkpoint reclaims space', async () => {
+            const db = open(path.join(directory, 'maintenance-busy.db'))
+            const fixture = { messages: [] }
+            const originalTarget = sqliteSettings.SQLITE_WAL_JOURNAL_SIZE_LIMIT_BYTES
+            const originalStep = sqliteSettings.SQLITE_WAL_RECLAIM_STEP_BYTES
+            let ready = 0, stopped = 0
+            try {
+                // Scale the parent's imported settings only. The real worker
+                // executes ordinary PASSIVE and never owns reclamation.
+                sqliteSettings.SQLITE_WAL_JOURNAL_SIZE_LIMIT_BYTES = 256 * 1024
+                sqliteSettings.SQLITE_WAL_RECLAIM_STEP_BYTES = 512 * 1024
+                append(db)
+                db.pragma('user_version=173')
+                const backfill = db.pragma('wal_checkpoint(PASSIVE)')[0]
+                assert.equal(backfill.log, backfill.checkpointed)
+                const walBefore = fs.statSync(db.name + '-wal').size
+                db.exec('BEGIN IMMEDIATE')
+                const errorsBefore = state().errors
+                const busyBefore = state().reclaimBusy
+                const windowsBefore = state().reclaimWindows
+                startObservedCheckpoint(db.name, {
+                    ...environment,
+                    // A legacy value must not make maintenance wait for us.
+                    SQLITE_CHECKPOINT_BUSY_TIMEOUT_MS: '5000',
+                }, { onReady: () => { ready++ }, onStopped: () => { stopped++ } }, fixture)
+                for (let round = 0; round < 3; round++) {
+                    if (round > 0) checkpoint.requestSqliteCheckpoint()
+                    await until(() => (fixture.messages.filter(message => message.type === 'checkpoint').length > round
+                        && state().reclaimBusy > busyBefore + round)
+                        || fixture.messages.some(message => message.type === 'checkpoint_error'),
+                    'maintenance busy checkpoint')
+                    const failure = fixture.messages.find(message => message.type === 'checkpoint_error')
+                    assert.equal(failure, undefined, failure?.error)
+                    const message = fixture.messages.filter(message => message.type === 'checkpoint')[round]
+                    assert.equal(message.mode, 'passive')
+                    assert.equal(message.passiveCheckpointedFrames, message.passiveLogFrames)
+                    assert.equal(message.reclaimAttempted, false, 'the bulk worker must not shrink the WAL')
+                    assert.equal(message.reclaimBusy, false)
+                    assert.equal(message.reclaimedBytes, 0)
+                    assert.equal(state().reclaimWindows, windowsBefore + round + 1)
+                    assert.equal(state().reclaimBusy, busyBefore + round + 1)
+                    assert.equal(state().lastReclaimedBytes, 0)
+                    assert.equal(state().errors, errorsBefore)
+                    assert.equal(state().lastError, false)
+                    assert.equal(ready, 1)
+                    assert.equal(stopped, 0, 'normal maintenance contention must not switch checkpoint ownership')
+                    assert.equal(state().enabled, true)
+                    assert.equal(fs.statSync(db.name + '-wal').size, walBefore)
+                }
+                db.exec('ROLLBACK')
+                const count = fixture.messages.filter(message => message.type === 'checkpoint').length
+                const reclaimedBefore = state().reclaimedBytes
+                const resetsBefore = state().reclaimResetsObserved
+                checkpoint.requestSqliteCheckpoint()
+                await until(() => (fixture.messages.filter(message => message.type === 'checkpoint').length > count
+                    && state().reclaimedBytes > reclaimedBefore)
+                    || fixture.messages.some(message => message.type === 'checkpoint_error'),
+                'maintenance reclaim after writer release')
+                assert.equal(fixture.messages.some(message => message.type === 'checkpoint_error'), false)
+                const recovered = fixture.messages.filter(message => message.type === 'checkpoint').at(-1)
+                assert.equal(recovered.reclaimAttempted, false)
+                assert.equal(recovered.reclaimBusy, false)
+                assert.equal(recovered.reclaimedBytes, 0)
+                assert.ok(state().lastReclaimedBytes > 0 && state().lastReclaimedBytes <= 512 * 1024)
+                assert.equal(walBefore - fs.statSync(db.name + '-wal').size, state().lastReclaimedBytes)
+                assert.equal(state().reclaimResetsObserved, resetsBefore + 1)
+                assert.equal(state().reclaimBusy, busyBefore + 3)
+                assert.equal(db.pragma('user_version', { simple: true }), 173)
+                assert.equal(db.prepare('SELECT count(*) FROM payloads').pluck().get(), 1301)
+                assert.equal(db.pragma('integrity_check', { simple: true }), 'ok')
+                assert.equal(state().errors, errorsBefore)
+                assert.equal(ready, 1)
+                assert.equal(stopped, 0)
+                assertPassiveDiagnostics()
+            } finally {
+                if (db.inTransaction) db.exec('ROLLBACK')
+                await checkpoint.stopSqliteCheckpointWorker()
+                assert.equal(stopped, 1)
+                db.close()
+                sqliteSettings.SQLITE_WAL_JOURNAL_SIZE_LIMIT_BYTES = originalTarget
+                sqliteSettings.SQLITE_WAL_RECLAIM_STEP_BYTES = originalStep
             }
         })
         await t.test('failed startup is observable and a later start can recover', async () => {

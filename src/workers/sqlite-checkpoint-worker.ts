@@ -3,21 +3,22 @@ import fs from "node:fs"
 import { parentPort, workerData } from "node:worker_threads"
 import { performance } from "node:perf_hooks"
 import { installWorkerMemoryProbe } from "../lib/memory-diagnostics"
+import { applySqliteWalSizeLimit } from "../lib/sqlite-settings"
 
 interface WorkerInput {
     databasePath: string
     intervalMs: number
-    busyTimeoutMs: number
 }
 
 const input = workerData as WorkerInput
 const database = new Database(input.databasePath)
 database.pragma("journal_mode = WAL")
-database.pragma("synchronous = NORMAL")
+database.pragma("synchronous = FULL")
+applySqliteWalSizeLimit(database)
 // Checkpoint maintenance must never wait behind a player transaction. A busy
 // result is safe here: the next interval retries after the writer/reader has
 // released its lock.
-database.pragma(`busy_timeout = ${Math.max(0, input.busyTimeoutMs)}`)
+database.pragma("busy_timeout = 0")
 database.pragma("wal_autocheckpoint = 0")
 
 let closed = false
@@ -40,22 +41,23 @@ function checkpoint(): void {
     checkpointRunning = true
     const startedAt = performance.now()
     try {
+        // FULL/RESTART/TRUNCATE hold the writer lock while syncing the database.
+        // busy_timeout only bounds waiting for a lock, not that I/O after it is
+        // acquired. Online checkpoints must stay PASSIVE even for a large WAL;
+        // Explicit checkpoint truncation belongs in a maintenance window with
+        // writers stopped. Reclaim only through a small natural-reset commit.
         const passiveResult = database.pragma("wal_checkpoint(PASSIVE)") as Array<Record<string, unknown>>
         const passiveState = passiveResult[0] ?? {}
         const passiveLogFrames = numberValue(passiveState.log)
         const passiveCheckpointedFrames = numberValue(passiveState.checkpointed)
-        // FULL/RESTART/TRUNCATE hold the writer lock while syncing the database.
-        // busy_timeout only bounds waiting for a lock, not that I/O after it is
-        // acquired. Online checkpoints must stay PASSIVE even for a large WAL;
-        // physical truncation belongs in a maintenance window with writers stopped.
-        const passiveBusy = numberValue(passiveState.busy)
-        if (passiveBusy === 1) busy++
+        const checkpointBusy = numberValue(passiveState.busy)
+        if (checkpointBusy === 1) busy++
         completed++
         parentPort?.postMessage({
             type: "checkpoint",
             durationMs: performance.now() - startedAt,
             mode: "passive",
-            busy: passiveBusy,
+            busy: checkpointBusy,
             logFrames: passiveLogFrames,
             checkpointedFrames: passiveCheckpointedFrames,
             passiveLogFrames,
@@ -63,6 +65,10 @@ function checkpoint(): void {
             // Keep the existing diagnostics contract for older consumers.
             truncateAttempted: false,
             truncateBusy: 0,
+            // Reclamation is serialized with business writes by the parent.
+            reclaimAttempted: false,
+            reclaimBusy: false,
+            reclaimedBytes: 0,
             walBytes: walBytes(),
         })
     } catch (error) {

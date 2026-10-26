@@ -25,7 +25,7 @@
 - 抽卡的扣费、奖励、历史、积分、任务、Awake、Degree Mission 和响应组装已收进同一玩家事务；资金、票券和 campaign 也在玩家队列内重新读取。
 - 当前 persistence worker 仍只覆盖已命令化的少量写入，不能据此启动多个完整 CN 业务进程。
 
-专项测试覆盖 PRAGMA 继承、1000/0 所有权切换、事务回滚、checkpoint backlog、固定读事务、busy/cooldown、启动失败恢复、连续异常降级、重新接管和优雅关闭。
+专项测试覆盖 PRAGMA 继承、1000/0 所有权切换、事务回滚、checkpoint backlog、固定读事务、维护写锁竞争与分阶段回收、启动失败恢复、连续异常降级、重新接管和优雅关闭。
 
 ## 本次高负载优化
 
@@ -42,7 +42,11 @@
 - TCP 大厅的 `ChangeParty` 只先更新房间内存态并广播，partySlot 保存改为低优先级异步持久化；五重决战 continue 也增加异步 HTTP 入口，保留同步兼容函数给旧测试和内部调用方。多人房间人数上限仍为三人。
 - Node 24 worker 诊断增加每个 worker 的累计 CPU 时间和采样窗口增量，同时记录主进程同一时间窗的 CPU 增量，用于验证多核心是否实际被使用。
 - 仍需保留同步 API 的旧调用方通过兼容入口接入；这些调用不会伪装成异步 worker，后续需要命令化后才能真正搬离主事件循环。
-- SQLite checkpoint worker（`SQLITE_CHECKPOINT_WORKER`）在 4 核多核模式默认开启，可显式设为 `0` 关闭。在线定时、启动及手动请求均只执行 `PASSIVE` checkpoint，默认间隔 5 秒；旧 `SQLITE_CHECKPOINT_TRUNCATE_FRAMES`、`SQLITE_CHECKPOINT_TRUNCATE_BYTES` 和 `SQLITE_CHECKPOINT_TRUNCATE_COOLDOWN_MS` 不再启用在线截断。`FULL`、`RESTART`、`TRUNCATE` 会持写锁执行数据库同步，`busy_timeout=0` 仅限制等锁时间，不能限制取得锁后的磁盘同步耗时，因此强制截断须放到停止业务写入并排空后的维护窗口。正常 `PASSIVE` 回写允许业务写入继续，遇到读者钉住旧快照时可能只完成部分回写；读者释放后后续轮次继续推进。已回写 WAL 可在后续写入中复用，物理文件可能保持历史峰值，不能仅据文件未缩小判断回写失败；长读事务仍可能导致 WAL 增长，需结合逻辑帧数、已回写帧数及物理字节数诊断。现有持久化同步等级保持不变；`[MEM]` 保留兼容的截断计数与 `lastWasTruncate` 字段，在线均为零或 false，并继续记录 PASSIVE 帧数和物理 WAL 字节数。checkpoint worker 继续响应内存诊断探针；头部恢复、最后连接关闭等生命周期路径不属于正常在线 PASSIVE 的无写锁保证。
+- SQLite checkpoint worker（`SQLITE_CHECKPOINT_WORKER`）在 4 核多核模式默认开启，可显式设为 `0` 关闭。在线定时、启动及手动请求的 checkpoint 均只使用 `PASSIVE`，默认间隔 5 秒。旧 `SQLITE_CHECKPOINT_TRUNCATE_FRAMES`、`SQLITE_CHECKPOINT_TRUNCATE_BYTES` 和 `SQLITE_CHECKPOINT_TRUNCATE_COOLDOWN_MS` 不再启用在线截断；`FULL`、`RESTART`、`TRUNCATE` checkpoint 须放到停止业务写入并排空后的维护窗口。
+- 普通可写连接初始化及重开使用 `journal_size_limit=-1`。后台 checkpoint worker 仅完成重 PASSIVE 回写；完整回写且 WAL 大于 2 GiB 时，父进程把最终回收加入持久化写入 gate 的同步排他回调。既有异步写任务排空后，在同一主线程调用栈中由独立维护连接执行最终 PASSIVE，再以 `BEGIN IMMEDIATE`、原值 `user_version` 小提交触发自然重置。普通主线程 Sync/raw SQL 无法插入这段调用栈，也不新增持有 exclusive 跨 await 的拒绝窗口。默认主线程每窗最多释放 256 MiB，紧接 COMMIT 前按真实长度选择 `max(2 GiB, size-256 MiB)`；helper 的全局 1 GiB 上限保留。低于目标不新开维护连接或额外写入。已有维护请求排队时合并重复请求，一次同步回调只缩一次，不在同一回调内连续追赶。
+- 独立主线程维护连接使用 `synchronous=FULL`、`busy_timeout=0`、`wal_autocheckpoint=0`，业务连接设置不变。SQLite 层的维护 BEGIN 忙仍正常让位，不作为 checkpoint_error；其他错误回滚后上报。写线程从初始化到有效 ready/settings，或从实际派发到最终 SQL ACK/真实 exit，均持有 native 写入票据；调用者 timeout/rejectAll 不等于原生连接已停写。维护在 native writer 未结束时保持待执行，不持排他 gate 等 IPC。排行榜仍使用原有排他 gate 持有到真实 exit 的规则。
+- 长 reader 可能使 PASSIVE 只完成部分回写，此时跳过物理回收，释放后后续轮次继续。2 GiB 是安全重置后的保留目标，不是活跃 WAL 的硬上限；应结合逻辑帧、已回写帧和物理字节诊断。维护线程停用或退出时，业务写入及原有 autocheckpoint 所有权机制继续运行，但物理空间回收暂停，恢复维护后继续分段。启动、手动请求及定时轮次遵循同一规则，不另加主动截断或自动恢复路径。
+- `[MEM]` 保留兼容的截断计数、后台 PASSIVE 帧数和物理 WAL 字节；另记录父进程实际回收窗口、尝试、最终 PASSIVE 或 BEGIN 忙、观察到的重置、净减少字节以及 last/max 回收窗口耗时。`reclaimErrors` 同时计入总 errors，后台 checkpoint 所有权仍由后台 PASSIVE 成败决定。WAL 代际在持 WRITE 后与 COMMIT 后比较，重置观察不等于物理净减少。最终尾部回写和缩文件会占主线程、推迟 HTTP/IPC 回调及释放 gate 的请求完成；字节上限不是 I/O 时限，须结合实际窗口、整条请求和 TCP/loop 样本验收，不能以 errors=0 宣称无影响。
 - 持久化协调器在连续异步事务之间通过 `setImmediate` 让出一次事件循环，保持同一全局/玩家队列的顺序，同时避免大量结算写入以微任务链形式连续占用 TCP/HTTP 回调。
 - 五重多人 `/abort` 和五重单人 `/start` 的 HTTP 路径已改用异步持久化协调器；原有同步函数仍保留给旧测试及已处于外层事务的内部调用，避免放弃或入场请求在主事件循环中直接执行完整 SQLite 事务。
 - 公告列表、公告详情和强制公告的已读回执也改用异步持久化入口；同步函数只保留给公告投放查询和管理清理等兼容调用，避免普通客户端浏览公告时直接执行 SQLite 写入。
@@ -64,7 +68,7 @@
 
 主数据库事务仍在当前进程内执行，目的是先建立可替换的调用边界并获得基线数据，不启动新的主数据库写入者。幂等阶段新增支付回执和操作回执表，由初始化器创建；两表属于目标服务器账本，存档导入不覆盖。在线存档导入与默认模板统一接受 V2，旧 V1 模板不再应用，离线迁移工具的兼容函数继续保留。
 
-隔离故障验证已覆盖 checkpoint worker 的启动回收、长读事务导致的 `busy`、截断冷却窗口、释放读事务后的重试、错误数据库路径恢复和停止清理；同时补充了 V2 存档导入对支付及操作幂等账本的保留验证，以及 V1 被拒绝且目标数据不变的回归。Node 24 下相关测试通过，验证使用临时数据库，尚未代表云服运行实例已经部署。
+隔离故障验证覆盖 checkpoint worker 的启动回写、长读事务导致的部分回写、维护写锁竞争与让位、分阶段空间回收、释放读事务后的继续推进、错误数据库路径恢复和停止清理；存档导入专项另覆盖 V2 对支付及操作幂等账本的保留，以及 V1 被拒绝且目标数据不变的回归。验证使用临时数据库，不代表云服运行实例已部署当前实现。
 
 ## 后续迁移顺序
 
