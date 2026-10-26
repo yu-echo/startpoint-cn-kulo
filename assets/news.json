@@ -3,7 +3,7 @@
     "popup": {
         "enabled": true,
         "news_id": 1,
-        "mode": "every_login",
+        "mode": "once_per_news",
         "start_time": null,
         "end_time": null
     },
