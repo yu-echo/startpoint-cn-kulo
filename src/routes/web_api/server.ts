@@ -106,12 +106,17 @@ function delay(milliseconds: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, milliseconds))
 }
 
-function deleteAccountDataSync(accountId: number): number[] {
+function deleteAccountDataSync(accountId: number): { playerIds: number[]; viewerIds: number[] } {
     const playerIds = getAccountPlayersSync(accountId)
+    // Capture every viewer before the account deletion cascades to sessions.
+    const viewers = getDb().prepare(`SELECT token FROM sessions WHERE account_id = ? AND type = ?`)
+        .all(accountId, SessionType.VIEWER) as { token: string }[]
+    const viewerIds = [...new Set(viewers.map(viewer => Number(viewer.token))
+        .filter(viewer => Number.isSafeInteger(viewer) && viewer > 0))]
     for (const playerId of playerIds) deletePlayerSync(playerId)
     getDb().prepare(`DELETE FROM device_bindings WHERE account_id = ?`).run(accountId)
     deleteAccountSync(accountId)
-    return playerIds
+    return { playerIds, viewerIds }
 }
 
 async function cleanupDeletedPlayerAiSnapshots(playerIds: number[], context: string): Promise<void> {
@@ -855,9 +860,11 @@ const routes = async (fastify: FastifyInstance) => {
             if (getAccountPlayersSync(a.id).includes(pid)) { accountId = a.id; break }
         }
         if (accountId && getAccountPlayersSync(accountId).length <= 1) {
-            const deletedPlayerIds = runPersistenceTransactionSync({
+            const { playerIds: deletedPlayerIds, viewerIds } = await runPersistenceTransaction({
                 domain: "admin", operation: `admin_delete_save_account:${accountId}`,
             }, () => deleteAccountDataSync(accountId))
+            // Revoke transports only after COMMIT, before fallible sidecar cleanup.
+            for (const viewerId of viewerIds) disconnectDeletedPlayerLogin(viewerId)
             removeDeletedAccountFromState(accountId, deletedPlayerIds)
             await cleanupDeletedPlayerAiSnapshots(deletedPlayerIds, `save ${pid} and account ${accountId} deletion`)
         } else {
@@ -878,9 +885,10 @@ const routes = async (fastify: FastifyInstance) => {
         const { id } = (request.query || {}) as any
         const accountId = parseInt(id)
         if (isNaN(accountId)) return reply.status(400).send({ error: "Missing or invalid 'id'" })
-        const playerIds = runPersistenceTransactionSync({
+        const { playerIds, viewerIds } = await runPersistenceTransaction({
             domain: "admin", operation: `admin_delete_account:${accountId}`,
         }, () => deleteAccountDataSync(accountId))
+        for (const viewerId of viewerIds) disconnectDeletedPlayerLogin(viewerId)
         removeDeletedAccountFromState(accountId, playerIds)
         await cleanupDeletedPlayerAiSnapshots(playerIds, `account ${accountId} deletion`)
         if (wantsJson(request)) return reply.send({ ok: true, accountId, deletedSaves: playerIds.length })
