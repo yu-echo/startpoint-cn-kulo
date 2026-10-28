@@ -5,6 +5,7 @@ import { unpack } from "msgpackr";
 import { installCnResponseEncoding } from "./lib/cn-response-hook";
 import fastifyStatic from "@fastify/static";
 import path from "path";
+import { getCdnRoot } from "./lib/cdn-path";
 import { mkdirSync, rmSync } from "fs";
 import { installAdminSpaStatic, sendAdminSpaFallback } from "./lib/admin-spa-static";
 import { writeJsonAtomicSync } from "./lib/atomic-json-file";
@@ -474,12 +475,12 @@ const cdnHost = process.env.CN_LISTEN_HOST || "localhost";
 const cdnPort = process.env.CN_LISTEN_PORT || "8001";
 const cdnDisplayHost = cdnHost === "0.0.0.0" ? "localhost" : cdnHost;
 const CDN_BASE_URL = process.env.CDN_BASE_URL || `http://${cdnDisplayHost}:${cdnPort}/patch/cn`;
-const cdnDir = process.env.CDN_DIR || ".cdn";
+const cdnDir = getCdnRoot();
 
 // Native readers can request common, medium, Android or iOS files directly.
 installCustomCdnResourceRoutes(fastify, {
     patchRoot: path.join(__dirname, "..", "assets", "asset-patch"),
-    cdnRoot: path.isAbsolute(cdnDir) ? cdnDir : path.join(__dirname, "..", cdnDir),
+    cdnRoot: cdnDir,
 });
 
 // Serve patch archive files for asset update
@@ -493,7 +494,7 @@ fastify.get("/patch/cn/asset-patch/active/:file", async (request, reply) => {
 });
 
 fastify.register(fastifyStatic, {
-    root: path.isAbsolute(cdnDir) ? cdnDir : path.join(__dirname, "..", cdnDir),
+    root: cdnDir,
     prefix: "/patch",
     decorateReply: false
 });
