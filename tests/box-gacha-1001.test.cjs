@@ -1,4 +1,4 @@
-const { test, after } = require('node:test')
+const { test, before, after } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path')
 const { setImmediate: nextTurn } = require('node:timers/promises')
@@ -11,9 +11,12 @@ process.env.CN_WRITER_THREAD = '0'
 process.env.MULTI_BATTLE_RELAY_PROCESS = '0'
 const load = name => require(path.resolve(__dirname, '../out', name))
 const db = load('data/db').getDb()
+const identities = load('lib/gameplay-request-identity')
+identities.initializeGameplayRequestIdentitySchemaSync(db)
 const accounts = load('data/domains/account'), players = load('data/domains/player')
 const boxes = load('data/domains/boxGacha'), items = load('data/domains/item')
 const selection = load('data/activeAccount'), assets = load('lib/assets')
+const operations = load('lib/content-operations')
 const coordinator = load('lib/persistence-coordinator')
 const { persistenceAdmission } = load('lib/persistence-admission')
 const { persistenceWriteGate } = load('lib/persistence-write-gate')
@@ -25,6 +28,14 @@ const EXPIRED = Date.parse('2026-10-11T12:00:00+08:00')
 const DAY = 24 * 60 * 60 * 1000
 const content = assets.getBoxGachaSync(GACHA)
 let sequence = 0
+
+// This suite covers the retained native 1001 date-policy fallback, not current
+// operational publication. Real store/parent controls have separate HTTP suites.
+before(t => {
+    const decide = operations.contentDecision
+    t.mock.method(operations, 'contentDecision', (type, id, action, now) =>
+        type === 'box_gacha' && id === GACHA ? null : decide(type, id, action, now))
+})
 
 after(async () => {
     await coordinator.drainPersistence()
@@ -49,7 +60,10 @@ async function subject() {
     items.setPlayerItemSync(p.id, CURRENCY, 10000)
     await coordinator.runPersistenceTransaction({ domain: 'player', playerId: p.id,
         operation: 'box_1001_fixture' }, () => {})
-    return { playerId: p.id, viewerId }
+    const loginToken = db.transaction(() => identities.issueGameplayLoginTokenSync(db, {
+        accountId: account.id, viewerId, udid: `box-1001-${viewerId}`, expiresAt: Date.parse('2099-01-01T00:00:00Z'),
+    }))()
+    return { playerId: p.id, viewerId, loginToken, apiCount: 0 }
 }
 async function appFor(t) {
     const app = require('fastify')({ logger: false })
@@ -125,8 +139,9 @@ function lastDraw(p, boxId = 1, changes = {}) {
     return history(p, boxId, true)
 }
 const post = (app, p, route, extra = {}) => app.inject({ method: 'POST', url: '/' + route,
+    headers: { login_token: p.loginToken },
     payload: { viewer_id: p.viewerId, box_gacha_id: GACHA, box_id: 1,
-        api_count: 1, number: 1, stop_on_featured_rewards: false, ...extra } })
+        api_count: extra.api_count ?? ++p.apiCount, number: 1, stop_on_featured_rewards: false, ...extra } })
 function data(response) {
     assert.equal(response.statusCode, 200, response.body)
     assert.match(response.headers['content-type'], /application\/x-msgpack/)
@@ -398,13 +413,14 @@ test('a truly exhausted open box can close once without clearing its history or 
     boxState(p, 1, { remainingNumber: 999, resetTimes: 3 })
     history(p)
     const beforeFacts = facts(p)
-    const result = data(await post(app, p, 'close'))
+    const request = { api_count: ++p.apiCount }
+    const result = data(await post(app, p, 'close', request))
     assert.equal(result.all_box_info.find(b => b.box_id === 1).is_closed, true)
     assert.deepEqual(row(p), { boxId: 1, remainingNumber: 0, isClosed: true, resetTimes: 3 })
     assert.deepEqual(facts(p), beforeFacts)
     assert.equal(amount(p), 10000)
     const before = digest(p)
-    data(await post(app, p, 'close'))
+    data(await post(app, p, 'close', request))
     assert.equal(digest(p), before)
     await rejectedUnchanged(app, p, 'reset')
 })
@@ -473,6 +489,7 @@ test('one remaining real reward charges exactly 10 stones and awards once with c
 for (const fault of ['facts', 'commit', 'response']) test(`1001 ${fault} failure rolls back charge, reward, progress and stock`, async t => {
     clock(t)
     const app = await appFor(t), p = await subject(), chosen = lastDraw(p)
+    const request = { api_count: ++p.apiCount }
     const owned = amount(p, chosen.id), before = digest(p), beforeFacts = facts(p), beforeBox = row(p)
     let responseReads = 0, mock
     if (fault === 'commit') {
@@ -499,7 +516,7 @@ for (const fault of ['facts', 'commit', 'response']) test(`1001 ${fault} failure
         })
     }
     try {
-        const failed = await post(app, p, 'exec')
+        const failed = await post(app, p, 'exec', request)
         assert.equal(failed.statusCode, 500, failed.body)
         assert.equal(db.inTransaction, false)
         assert.equal(digest(p), before)
@@ -516,7 +533,7 @@ for (const fault of ['facts', 'commit', 'response']) test(`1001 ${fault} failure
             if (fault === 'commit') db.exec('DROP TABLE box_1001_fixture_child; DROP TABLE box_1001_fixture_parent')
         }
     }
-    data(await post(app, p, 'exec'))
+    data(await post(app, p, 'exec', request))
     assert.equal(amount(p), 9990)
     assert.equal(amount(p, chosen.id), owned + chosen.count)
 })

@@ -26,7 +26,12 @@ function fixture(id) {
     db.prepare('INSERT INTO sessions(token,account_id,expires,type) VALUES(?,?,?,2)').run(String(viewer), account.id, '2099-01-01T00:00:00Z')
     const item = assets.getShopItemSync(4, id)
     for (const cost of item.costs) inventory.setPlayerItemSync(player.id, cost.id, Math.max(cost.amount * 10000, 10000))
-    return { id: player.id, viewer, item }
+    const identities = load('lib/gameplay-request-identity')
+    identities.initializeGameplayRequestIdentitySchemaSync(db)
+    const token = db.transaction(() => identities.issueGameplayLoginTokenSync(db, {
+        accountId: account.id, viewerId: viewer, udid: 'shop-fixture-' + viewer, expiresAt: Date.now() + 86400000,
+    }))()
+    return { token, apiCount: 0, id: player.id, viewer, item }
 }
 function snapshot(player) {
     return Object.fromEntries(tables.map(({ name, owner }) => [name,
@@ -47,7 +52,8 @@ function enable(id) {
     return row
 }
 const post = (player, url, body) => app.inject({ method: 'POST', url,
-    payload: { viewer_id: player.viewer, api_count: 1, ...body } })
+    headers: { login_token: player.token },
+    payload: { viewer_id: player.viewer, api_count: ++player.apiCount, ...body } })
 const buy = (player, id, number = 1) => post(player, '/shop/buy', { shop_type: 4, shop_item_id: id, number })
 const bulk = (player, id, number) => post(player, '/shop/bulk_buy', { shop_type: 4, buy_item_list: { [id]: number } })
 function success(result) { assert.equal(result.statusCode, 200, result.body); return result.json().data }

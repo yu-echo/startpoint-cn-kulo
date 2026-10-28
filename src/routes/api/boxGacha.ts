@@ -21,6 +21,7 @@ import { gameVerboseLog } from "../../lib/game-logging";
 import { BOX_GACHA_1001_ID, getBoxGacha1001PeriodError, getBoxGacha1001Settings } from "../../lib/box-gacha-1001";
 import { contentDecision } from "../../lib/content-operations";
 import { boxPolicyCloseError, boxPolicyResetError, getBoxOperationRule } from "../../lib/box-gacha-policy";
+import { readGameplayMutationRequestSync, recordGameplayMutationResponseSync } from "../../lib/gameplay-mutation-receipt";
 
 interface GetBoxListBody {
     box_gacha_id: number
@@ -426,26 +427,19 @@ const routes = async (fastify: FastifyInstance) => {
             "message": "No players bound to account."
         })
 
-        // get box gacha data
-        const boxGachaData = getBoxGachaSync(boxGachaId)
-        if (boxGachaData === null) return reply.status(400).send({
-            "error": "Bad Request",
-            "message": "Invalid box gacha id."
-        })
-
-        const pullCurrencyId = boxGachaData.redeemItemId
-        const boxRewards = boxGachaData.boxes[boxId]
-        if (boxRewards === undefined) return reply.status(400).send({
-            "error": "Bad Request",
-            "message": "Invalid box ID."
-        })
-
-        if (contentDecision("box_gacha", boxGachaId, "enter", Date.now()) === false) {
-            return reply.status(400).send({ error: "Bad Request", message: "Box gacha operation is closed." })
-        }
         const settlement = await runPersistenceTransaction({
             domain: "gacha", playerId, operation: "box_exec",
         }, () => {
+            const mutation = readGameplayMutationRequestSync(playerId, {
+                headerToken: request.headers.login_token, body, accountId: viewerIdSession.accountId,
+            }, "box_exec", { boxGachaId, boxId, pullCount, stopOnFeaturedRewards })
+            if (!mutation) return { errorMessage: "Invalid or superseded gameplay request." }
+            if (mutation.response) return { data: mutation.response }
+            const boxGachaData = getBoxGachaSync(boxGachaId)
+            if (boxGachaData === null) return { errorMessage: "Invalid box gacha id." }
+            const pullCurrencyId = boxGachaData.redeemItemId
+            const boxRewards = boxGachaData.boxes[boxId]
+            if (boxRewards === undefined) return { errorMessage: "Invalid box ID." }
             const eligibilityError = getBoxEligibilityError(playerId, boxGachaId, boxId, boxGachaData.boxes)
             if (eligibilityError !== null) return { errorMessage: eligibilityError }
             const currentDrawnRewards = getPlayerBoxGachaDrawnRewardsSync(playerId, boxGachaId, boxId)
@@ -503,79 +497,44 @@ const routes = async (fastify: FastifyInstance) => {
             const characterList = reconcileAwakeUnlockCharacterList(playerId, existingCharacterList)
             const responsePlayer = getPlayerSync(playerId)
             if (responsePlayer === null) throw new Error("Player disappeared during box settlement.")
-            return {
-                drawResult, rewardResult, currentDrawnRewards,
-                playerBoxData: {
-                    boxId, resetTimes: currentBoxData?.resetTimes ?? 0,
-                    remainingNumber: remainingDrawsNumber, isClosed: shouldClose,
-                },
-                allBoxInfo: getAllBoxList(playerId, boxGachaId, boxGachaData.boxes, boxId),
-                characterList,
-                finalPullCurrency: getPlayerItemSync(playerId, pullCurrencyId)!,
-                userInfo: {
+            const allBoxInfo = getAllBoxList(playerId, boxGachaId, boxGachaData.boxes, boxId)
+            const allDrawResultMap = new Map(drawResult.rewards.map(reward => [reward.id, reward.number]))
+            for (const prior of currentDrawnRewards) {
+                allDrawResultMap.set(prior.id, (allDrawResultMap.get(prior.id) ?? 0) + prior.number)
+            }
+            allBoxInfo.push({
+                box_id: boxId,
+                reset_times: currentBoxData?.resetTimes ?? 0,
+                all_drawn_reward_list: [...allDrawResultMap].map(([rewardId, number]) => ({ reward_id: rewardId, number })),
+                coming_next_reward_list: [],
+                is_closed: shouldClose,
+            })
+            const data = {
+                user_info: {
                     free_mana: responsePlayer.freeMana,
                     exp_pool: responsePlayer.expPool,
                     exp_pooled_time: getPlayerClientExpTime(responsePlayer),
                 },
+                drawn_reward_list: drawResult.rewards.map(reward => ({ reward_id: reward.id, number: reward.number })),
+                all_box_info: allBoxInfo,
+                joined_character_id_list: rewardResult?.joined_character_id_list ?? [],
+                character_list: characterList,
+                equipment_list: rewardResult?.equipment_list ?? [],
+                item_list: { ...(rewardResult?.items ?? {}), [pullCurrencyId]: getPlayerItemSync(playerId, pullCurrencyId)! },
+                mail_arrived: false,
             }
+            recordGameplayMutationResponseSync(playerId, mutation, data)
+            return { data }
         })
         if ("errorMessage" in settlement) return reply.status(400).send({
             "error": "Bad Request", "message": settlement.errorMessage,
         })
-        const { drawResult, rewardResult, currentDrawnRewards, allBoxInfo, characterList } = settlement
-        const drawnRewards = drawResult.rewards
-        const allDrawResultMap: Map<number, number> = new Map()
-        for (const drawnReward of drawnRewards) {
-            allDrawResultMap.set(drawnReward.id, drawnReward.number)
-        }
-        for (const playerDrawnReward of currentDrawnRewards) {
-            allDrawResultMap.set(playerDrawnReward.id, (allDrawResultMap.get(playerDrawnReward.id) ?? 0) + playerDrawnReward.number)
-        }
-        const responsePlayerBoxData = settlement.playerBoxData
-
-        // add current box to allBoxInfo
-        {
-            // build all drawn reward list
-            const allDrawnRewardList: Object[] = []
-            for (const [rewardId, number] of allDrawResultMap) {
-                allDrawnRewardList.push({
-                    "reward_id": rewardId,
-                    "number": number
-                })
-            }
-
-            allBoxInfo.push({
-                "box_id": boxId,
-                "reset_times": responsePlayerBoxData?.resetTimes ?? 0,
-                "all_drawn_reward_list": allDrawnRewardList,
-                "coming_next_reward_list": [],
-                "is_closed": responsePlayerBoxData.isClosed
-            })
-        }
-
         reply.header("content-type", "application/x-msgpack")
         return reply.status(200).send({
             "data_headers": generateDataHeaders({
                 viewer_id: viewerId
             }),
-            "data": {
-                "user_info": settlement.userInfo,
-                "drawn_reward_list": drawnRewards.map(reward => {
-                    return {
-                        "reward_id": reward.id,
-                        "number": reward.number
-                    }
-                }),
-                "all_box_info": allBoxInfo,
-                "joined_character_id_list": rewardResult?.joined_character_id_list ?? [],
-                "character_list": characterList,
-                "equipment_list": rewardResult?.equipment_list ?? [],
-                "item_list": {
-                    ...(rewardResult?.items ?? {}),
-                    [pullCurrencyId]: settlement.finalPullCurrency,
-                },
-                "mail_arrived": false
-            }
+            "data": settlement.data,
         })
     })
 

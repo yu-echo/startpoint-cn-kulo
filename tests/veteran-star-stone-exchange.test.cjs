@@ -12,6 +12,7 @@ const load=name=>require('../src/'+name+'.ts')
 const operations=load('lib/content-operations'),assets=load('lib/assets'),players=load('data/domains/player')
 const degrees=load('data/domains/degree'),purchases=load('data/domains/shopPurchase')
 const coordinator=load('lib/persistence-coordinator'),transaction=coordinator.runPersistenceTransaction
+const identities=load('lib/gameplay-request-identity')
 const ITEM=9700118,DEGREE=9900006,PRICE=5000000,PARENT='rush_event:700099',KEY='event_item_shop:'+ITEM
 let db,app,tables,nextViewer=89701180
 const quote=value=>'"'+value.replaceAll('"','""')+'"'
@@ -28,11 +29,12 @@ function fixture(free=PRICE,paid=0,accountId){
  players.updatePlayerSync({id:player.id,freeVmoney:free,vmoney:paid})
  db.transaction(()=>load('lib/server-clock-state').ensurePlayerClockStateForLoadSync(player.id,db))()
  db.prepare('INSERT INTO sessions(token,account_id,expires,type) VALUES(?,?,?,2)').run(String(viewer),accountId,'2099-01-01T00:00:00Z')
- return {id:player.id,accountId,viewer}
+ const loginToken=db.transaction(()=>identities.issueGameplayLoginTokenSync(db,{accountId,viewerId:viewer,udid:'veteran-'+viewer,expiresAt:Date.now()+86400000}))()
+ return {id:player.id,accountId,viewer,loginToken,apiCount:0}
 }
 function post(player,url,body){
  load('data/activeAccount').saveAccountDefaultPlayer(player.accountId,player.id)
- return app.inject({method:'POST',url,payload:{viewer_id:player.viewer,api_count:1,...body}})
+ return app.inject({method:'POST',url,headers:{login_token:player.loginToken},payload:{viewer_id:player.viewer,api_count:++player.apiCount,...body}})
 }
 const buy=(player,number=1)=>post(player,'/shop/buy',{shop_type:4,shop_item_id:ITEM,number})
 const bulk=(player,number=1)=>post(player,'/shop/bulk_buy',{shop_type:4,buy_item_list:{[ITEM]:number}})
@@ -49,6 +51,7 @@ function owns(player){return degrees.hasPlayerDegreeSync(player.id,DEGREE)}
 
 before(async()=>{
  db=load('data/db').getDb();assert.equal(path.dirname(fs.realpathSync(db.name)),fs.realpathSync(directory))
+ identities.initializeGameplayRequestIdentitySchemaSync(db)
  tables=db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all().map(({name})=>({name,columns:db.prepare(`PRAGMA table_info(${quote(name)})`).all().map(row=>row.name)})).filter(row=>row.name==='players'||row.columns.includes('player_id')).map(row=>({name:row.name,owner:row.name==='players'?'id':'player_id'}))
  // A missing exact receipt must fail here. No mock or policy substitution can
  // make this suite pass while the actual operations store refuses this item.

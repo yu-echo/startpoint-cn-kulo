@@ -13,6 +13,7 @@ fs.mkdirSync(process.env.GACHA_SEED_DIR);
 const Fastify = require('fastify');
 const { pack, unpack } = require('msgpackr');
 const { getDb } = require('../out/data/db');
+const identities = require('../out/lib/gameplay-request-identity');
 const { insertAccountSync } = require('../out/data/domains/account');
 const { insertDefaultPlayerSync } = require('../out/data/domains/player');
 const characters = require('../out/data/domains/character');
@@ -67,7 +68,12 @@ async function freshPlayer() {
         expires: new Date(Date.now() + 86_400_000), type: 2,
     });
     items.givePlayerItemSync(player.id, 990008, initialGrains);
-    return { id: player.id, viewerId };
+    const db = getDb();
+    identities.initializeGameplayRequestIdentitySchemaSync(db);
+    const loginToken = db.transaction(() => identities.issueGameplayLoginTokenSync(db, {
+        accountId: account.id, viewerId, udid: `shop-character-${viewerId}`, expiresAt: Date.now() + 86_400_000,
+    }))();
+    return { id: player.id, viewerId, loginToken, apiCount: 0 };
 }
 
 function reward(id) { return { type: RewardType.CHARACTER, id }; }
@@ -105,8 +111,9 @@ function assertPurchase(player, shopItemId, product, quantity, returnedItems) {
 async function buy(player, shopItemId, quantity, bulk = false) {
     return app.inject({
         method: 'POST', url: bulk ? '/shop/bulk_buy' : '/shop/buy',
+        headers: { login_token: player.loginToken },
         payload: {
-            viewer_id: player.viewerId, api_count: 1, shop_type: ShopType.STAR_GRAIN,
+            viewer_id: player.viewerId, api_count: ++player.apiCount, shop_type: ShopType.STAR_GRAIN,
             ...(bulk ? { buy_item_list: { [shopItemId]: quantity } }
                 : { shop_item_id: Number(shopItemId), number: quantity }),
         },

@@ -22,7 +22,9 @@ const {
 } = require("../out/data/domains/player")
 const { insertSessionWithToken } = require("../out/data/domains/session")
 const { saveAccountDefaultPlayer } = require("../out/data/activeAccount")
-const treasureShop = require("../assets/treasure_shop.json")
+const assets = require("../out/lib/assets")
+const { getDb } = require("../out/data/db")
+const identity = require("../out/lib/gameplay-request-identity")
 
 test("free-first deduction covers free, mixed, paid, and insufficient balances", () => {
     assert.deepEqual(computeFreeFirstDeduction(100, 50, 80), {
@@ -171,6 +173,11 @@ test("shop routes use mixed balances without changing insufficient behavior", as
         expires: new Date(Date.now() + 86_400_000),
         type: 2,
     })
+    identity.initializeGameplayRequestIdentitySchemaSync(getDb())
+    const loginToken = getDb().transaction(() => identity.issueGameplayLoginTokenSync(getDb(), {
+        accountId: account.id, viewerId, udid: `shop-deduction-${viewerId}`, expiresAt: Date.now() + 86_400_000,
+    }))()
+    let apiCount = 0
 
     const app = Fastify({ logger: false })
     app.addHook("onSend", (_request, reply, payload, done) => {
@@ -188,8 +195,8 @@ test("shop routes use mixed balances without changing insufficient behavior", as
     const post = (url, payload) => app.inject({
         method: "POST",
         url: `/shop/${url}`,
-        headers: { "content-type": "application/json" },
-        payload: { viewer_id: viewerId, api_count: 1, ...payload },
+        headers: { "content-type": "application/json", login_token: loginToken },
+        payload: { viewer_id: viewerId, ...payload, api_count: ++apiCount },
     })
     const body = response => JSON.parse(response.payload)
 
@@ -209,23 +216,27 @@ test("shop routes use mixed balances without changing insufficient behavior", as
     })
 
     await t.test("single bead purchase consumes paid overflow", async () => {
-        const originalCost = treasureShop["200003"].userCost
-        treasureShop["200003"].userCost = { type: 0, amount: 50 }
+        const originalItem = assets.getShopItemSync
+        // Override the effective accessor: native content rules project over the raw JSON.
+        assets.getShopItemSync = (type, id) => {
+            const item = originalItem(type, id)
+            return type === 2 && Number(id) === 200070 ? {...item, userCost: {type: 0, amount: 50}} : item
+        }
         try {
             updatePlayerSync({ id: player.id, freeVmoney: 20, vmoney: 30 })
             const response = await post("buy", {
                 shop_type: 2,
-                shop_item_id: 200003,
+                shop_item_id: 200070,
                 number: 1,
             })
-            assert.equal(response.statusCode, 200)
+            assert.equal(response.statusCode, 200, response.body)
             const current = getPlayerSync(player.id)
             assert.equal(current.freeVmoney, 0)
             assert.equal(current.vmoney, 0)
             assert.equal(body(response).data.user_info.free_vmoney, 0)
             assert.equal(body(response).data.user_info.vmoney, 0)
         } finally {
-            treasureShop["200003"].userCost = originalCost
+            assets.getShopItemSync = originalItem
         }
     })
 
@@ -244,13 +255,16 @@ test("shop routes use mixed balances without changing insufficient behavior", as
     })
 
     await t.test("bulk purchase calculates quantity from combined beads", async () => {
-        const originalCost = treasureShop["200004"].userCost
-        treasureShop["200004"].userCost = { type: 0, amount: 50 }
+        const originalItem = assets.getShopItemSync
+        assets.getShopItemSync = (type, id) => {
+            const item = originalItem(type, id)
+            return type === 2 && Number(id) === 200071 ? {...item, userCost: {type: 0, amount: 50}} : item
+        }
         try {
             updatePlayerSync({ id: player.id, freeVmoney: 20, vmoney: 30 })
             const response = await post("bulk_buy", {
                 shop_type: 2,
-                buy_item_list: { "200004": 1 },
+                buy_item_list: { "200071": 1 },
             })
             assert.equal(response.statusCode, 200)
             const current = getPlayerSync(player.id)
@@ -259,7 +273,7 @@ test("shop routes use mixed balances without changing insufficient behavior", as
             assert.equal(body(response).data.user_info.free_vmoney, 0)
             assert.equal(body(response).data.user_info.vmoney, 0)
         } finally {
-            treasureShop["200004"].userCost = originalCost
+            assets.getShopItemSync = originalItem
         }
     })
 

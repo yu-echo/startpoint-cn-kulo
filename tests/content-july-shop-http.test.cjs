@@ -20,11 +20,17 @@ test('fixed July shop survives old calendar, spends existing coins atomically, p
  const player=require('../out/data/domains/player').insertDefaultPlayerSync(account.id),viewer=883000000+player.id
  require('../out/data/activeAccount').saveAccountDefaultPlayer(account.id,player.id)
  db.prepare('INSERT INTO sessions(token,account_id,expires,type) VALUES(?,?,?,2)').run(String(viewer),account.id,'2099-01-01T00:00:00Z')
+ const identities=require('../out/lib/gameplay-request-identity')
+ identities.initializeGameplayRequestIdentitySchemaSync(db)
+ const loginToken=db.transaction(()=>identities.issueGameplayLoginTokenSync(db,{
+  accountId:account.id,viewerId:viewer,udid:'july-shop-fixture-'+viewer,expiresAt:Date.now()+86400000,
+ }))()
+ let apiCount=0
  items.setPlayerItemSync(player.id,40501,10000);items.setPlayerItemSync(player.id,49100,8);purchases.addPlayerShopPurchaseCountSync(player.id,5000,13)
  const app=Fastify({logger:false});app.addHook('onSend',(_request,reply,body,done)=>done(null,String(reply.getHeader('content-type')).startsWith('application/x-msgpack')?pack(body).toString('base64'):body))
  await app.register(require('../out/routes/api/shop').default,{prefix:'/shop'})
  let closed=false;t.after(async()=>{Date.now=originalNow;if(!closed){await app.close();await require('../out/lib/seed-validator').default.close();if(db.open)db.close()}})
- const post=(url,payload)=>app.inject({method:'POST',url,payload:{viewer_id:viewer,...payload}})
+ const post=(url,payload)=>app.inject({method:'POST',url,headers:{login_token:loginToken},payload:{viewer_id:viewer,...payload,api_count:++apiCount}})
  const buy=amount=>post('/shop/buy',{shop_type:4,shop_item_id:5000,number:amount,api_count:1})
  const state=()=>({coin:items.getPlayerItemSync(player.id,40501),reward:items.getPlayerItemSync(player.id,49100),purchased:purchases.getPlayerShopPurchaseCountSync(player.id,5000)})
  const control=(key,enabled)=>store.update(key,{expectedRevision:store.revision(),catalogDigest:store.digest,reason:'isolated exact shop close/reopen',actionOverrides:{exchange:{enabled,endsAtMs:null,readiness:'verified',evidence:'same exact scoped shop evidence'}}},now)

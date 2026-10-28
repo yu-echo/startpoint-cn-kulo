@@ -259,20 +259,13 @@ const routes = async (fastify: FastifyInstance) => {
 
         // get player
         const playerId = resolvePlayerIdSync(viewerIdSession.accountId)!
-        const player = playerId !== null ? getPlayerSync(playerId) : null
-
-        if (player === null) return reply.status(500).send({
+        if (playerId === null) return reply.status(500).send({
             "error": "Internal Server Error",
             "message": "No players bound to account."
         })
 
         // increase character exp
         const characterId = body.character_id
-        const character = getPlayerCharacterSync(playerId, characterId)
-        if (character === null) return reply.status(400).send({
-            "error": "Internal Server Error",
-            "message": "Player does not own character."
-        })
 
         // Some CN clients send the spend as a negative delta. Accept either
         // sign, but reject zero, fractional and unsafe values before touching
@@ -286,11 +279,16 @@ const routes = async (fastify: FastifyInstance) => {
         })
         const requestedExp = Math.abs(rawRequestedExp)
         const requestTime = getServerDate()
-        let expPooledTime = player.expPooledTime
 
-        const rewardResult = await runPersistenceTransaction({
+        const outcome = await runPersistenceTransaction({
             domain: "player", playerId, operation: "inject_exp",
         }, () => {
+            const mutation = readGameplayMutationRequestSync(playerId, {
+                headerToken: request.headers.login_token, body, accountId: viewerIdSession.accountId,
+            }, "inject_exp", { characterId, exp: rawRequestedExp })
+            if (!mutation) return { error: "Invalid or superseded gameplay request." }
+            if (mutation.response) return { data: mutation.response }
+            if (getPlayerCharacterSync(playerId, characterId) === null) return { error: "Player does not own character." }
             // Refresh passive pooled EXP before comparing with the amount the
             // client displayed, then read and deduct the authoritative balance
             // in the same transaction. A stale client may request slightly
@@ -317,26 +315,24 @@ const routes = async (fastify: FastifyInstance) => {
 
             const result = givePlayerCharactersExpSync(playerId, [characterId], spendExp, false)
             if (spendExp > 0) incrementActiveMissionInjectedExpCountSync(playerId)
-            expPooledTime = getPlayerSync(playerId)?.expPooledTime ?? refreshedPlayer.expPooledTime
-            return result
+            const responsePlayer = getPlayerSync(playerId) ?? refreshedPlayer
+            const data: Record<string, any> = {
+                add_exp_list: result.add_exp_list,
+                character_list: result.character_list,
+                user_info: { exp_pool: result.exp_pool, exp_pooled_time: getPlayerClientExpTime(responsePlayer) },
+            }
+            settleDegreeMissionResponse(playerId, viewerId, data, undefined, [5, 44], [characterId])
+            recordGameplayMutationResponseSync(playerId, mutation, data)
+            return { data }
         })
-
-        const responseData: Record<string, any> = {
-            "add_exp_list": rewardResult.add_exp_list,
-            "character_list": rewardResult.character_list,
-            "user_info": {
-                "exp_pool": rewardResult.exp_pool,
-                "exp_pooled_time": getPlayerClientExpTime({ expPooledTime, timeOffset: getPlayerSync(playerId)?.timeOffset })
-            },
-        }
-        settleDegreeMissionResponse(playerId, viewerId, responseData, undefined, [5, 44], [characterId])
+        if (outcome.error !== undefined) return reply.status(400).send({ error: "Bad Request", message: outcome.error })
 
         reply.header("content-type", "application/x-msgpack")
         return reply.status(200).send({
             "data_headers": generateDataHeaders({
                 viewer_id: viewerId
             }),
-            "data": responseData
+            "data": outcome.data
         })
     })
 }

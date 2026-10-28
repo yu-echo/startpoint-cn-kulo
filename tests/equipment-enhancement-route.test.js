@@ -13,6 +13,8 @@ const { insertAccountSync } = require("../out/data/domains/account")
 const { insertDefaultPlayerSync } = require("../out/data/domains/player")
 const { insertSessionWithToken } = require("../out/data/domains/session")
 const { saveAccountDefaultPlayer } = require("../out/data/activeAccount")
+const { getDb } = require("../out/data/db")
+const identities = require("../out/lib/gameplay-request-identity")
 const {
     getPlayerEquipmentSync,
     insertPlayerEquipmentSync,
@@ -56,6 +58,12 @@ test("Liberator and Terminator each require 13 ordered one-crystal purchases", a
         type: 2,
     })
 
+    const db = getDb()
+    identities.initializeGameplayRequestIdentitySchemaSync(db)
+    const loginToken = db.transaction(() => identities.issueGameplayLoginTokenSync(db, {
+        accountId: account.id, viewerId, udid: `enhancement-${viewerId}`, expiresAt: Date.now() + 86_400_000,
+    }))()
+    let apiCount = 0
     const app = Fastify({ logger: false })
     app.addHook("onSend", (_request, reply, payload, done) => {
         const contentType = String(reply.getHeader("content-type") ?? "")
@@ -72,10 +80,10 @@ test("Liberator and Terminator each require 13 ordered one-crystal purchases", a
     const buy = (shopItemId, number = 1) => app.inject({
         method: "POST",
         url: "/shop/buy",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", login_token: loginToken },
         payload: {
             viewer_id: viewerId,
-            api_count: 1,
+            api_count: ++apiCount,
             shop_type: 10,
             shop_item_id: shopItemId,
             number,

@@ -8,6 +8,8 @@ process.env.GACHA_SEED_DIR = path.join(directory, 'seeds')
 process.env.CN_WRITER_THREAD = '0'
 const load = name => require(path.resolve(__dirname, '../out', name))
 const db = load('data/db').getDb()
+const identities = load('lib/gameplay-request-identity')
+identities.initializeGameplayRequestIdentitySchemaSync(db)
 const accounts = load('data/domains/account'), players = load('data/domains/player')
 const boxes = load('data/domains/boxGacha'), items = load('data/domains/item')
 const selection = load('data/activeAccount'), assets = load('lib/assets')
@@ -40,7 +42,10 @@ async function subject() {
     items.setPlayerItemSync(p.id, CURRENCY, 10000)
     items.setPlayerItemSync(p.id, REWARD, 0)
     await coordinator.runPersistenceTransaction({ domain: 'player', playerId: p.id, operation: 'box_fixture' }, () => {})
-    return { playerId: p.id, accountId: account.id, viewerId }
+    const loginToken = db.transaction(() => identities.issueGameplayLoginTokenSync(db, {
+        accountId: account.id, viewerId, udid: `box-security-${viewerId}`, expiresAt: Date.parse('2099-01-01T00:00:00Z'),
+    }))()
+    return { playerId: p.id, accountId: account.id, viewerId, loginToken, apiCount: 0 }
 }
 function master(stock = 3, featured = false) {
     return { redeemItemId: CURRENCY, redeemItemCount: 10,
@@ -135,8 +140,9 @@ const digest = p => {
     return hash.digest('hex')
 }
 const payload = (p, extra = {}) => ({ viewer_id: p.viewerId, box_gacha_id: GACHA, box_id: 1,
-    api_count: 1, number: 1, stop_on_featured_rewards: false, ...extra })
-const post = (app, p, route, extra = {}) => app.inject({ method: 'POST', url: '/' + route, payload: payload(p, extra) })
+    api_count: extra.api_count ?? ++p.apiCount, number: 1, stop_on_featured_rewards: false, ...extra })
+const post = (app, p, route, extra = {}) => app.inject({ method: 'POST', url: '/' + route,
+    headers: { login_token: p.loginToken }, payload: payload(p, extra) })
 function data(response) {
     assert.equal(response.statusCode, 200, response.body)
     assert.match(response.headers['content-type'], /application\/x-msgpack/)
@@ -293,11 +299,12 @@ test('a reward using the draw currency is added after the charge and returned wi
 test('partial close is permitted by a close-only policy and repeated close cannot enable reset', async t => {
     const p = await subject(), app = await appFor(t, master(3), { closeOnly: true })
     seedBox(p, { remaining: 999, drawn: 1 })
-    const first = data(await post(app, p, 'close'))
+    const request = { api_count: ++p.apiCount }
+    const first = data(await post(app, p, 'close', request))
     assert.equal(first.all_box_info.find(box => box.box_id === 1).is_closed, true)
     assert.equal(row(p).remainingNumber, 2)
     const before = digest(p)
-    const repeated = data(await post(app, p, 'close'))
+    const repeated = data(await post(app, p, 'close', request))
     assert.deepEqual(repeated.all_box_info, first.all_box_info)
     assert.equal(digest(p), before)
     assert.equal(data(await post(app, p, 'get_box_list')).all_box_info.find(box => box.box_id === 1).is_closed, true)
@@ -327,7 +334,8 @@ test('reset uses per-reward facts, not the sum of obsolete reward rows', async t
 test('actually empty boxes reset atomically even with stale positive cached stock; retry cannot reset twice', async t => {
     const p = await subject(), app = await appFor(t, master(3))
     seedBox(p, { remaining: 999, closed: false, drawn: 3, resets: 2 })
-    const results = await Promise.all([post(app, p, 'reset'), post(app, p, 'reset')])
+    const request = { api_count: ++p.apiCount }
+    const results = await Promise.all([post(app, p, 'reset', request), post(app, p, 'reset', request)])
     assert.deepEqual(results.map(r => r.statusCode).sort(), [200, 400])
     assert.deepEqual(row(p), { boxId: 1, remainingNumber: 3, isClosed: false, resetTimes: 3 })
     assert.deepEqual(facts(p), [])
@@ -355,6 +363,7 @@ test('expanded empty boxes reopen only the new stock and historical partial clos
 
 for (const fault of ['facts', 'commit']) test(`draw ${fault} failure rolls back currency, awarded items, stock and facts`, async t => {
     const p = await subject(), app = await appFor(t, master(2))
+    const request = { api_count: ++p.apiCount }
     seedBox(p, { remaining: 2 })
     if (fault === 'commit') {
         db.exec(`CREATE TABLE box_fixture_parent(id INTEGER PRIMARY KEY);
@@ -366,7 +375,7 @@ for (const fault of ['facts', 'commit']) test(`draw ${fault} failure rolls back 
         WHEN NEW.player_id=${p.playerId} BEGIN SELECT RAISE(ABORT,'fixture draw-facts failure'); END`)
     const before = digest(p)
     try {
-        const failed = await post(app, p, 'exec')
+        const failed = await post(app, p, 'exec', request)
         assert.equal(failed.statusCode, 500, failed.body)
         assert.equal(db.inTransaction, false)
         assert.equal(digest(p), before)
@@ -378,13 +387,14 @@ for (const fault of ['facts', 'commit']) test(`draw ${fault} failure rolls back 
         db.exec('DROP TRIGGER box_fixture_fault')
         if (fault === 'commit') db.exec('DROP TABLE box_fixture_child; DROP TABLE box_fixture_parent')
     }
-    data(await post(app, p, 'exec'))
+    data(await post(app, p, 'exec', request))
     assert.equal(amount(p, CURRENCY), 9990)
     assert.equal(amount(p, REWARD), 1)
 })
 
 test('response collection failure after awarding the draw rolls the entire original transaction back', async t => {
     const p = await subject(), content = master(2)
+    const request = { api_count: ++p.apiCount }
     content.boxes[2] = { 200: { type: 2, count: 0, available: 1, tier: 0 } }
     content.availableCounts[2] = 1
     const app = await appFor(t, content)
@@ -404,7 +414,7 @@ test('response collection failure after awarding the draw rolls the entire origi
         return original(playerId, gachaId, boxId)
     })
     try {
-        const failed = await post(app, p, 'exec')
+        const failed = await post(app, p, 'exec', request)
         assert.equal(failed.statusCode, 500, failed.body)
         assert.equal(reachedResponse, 1)
         assert.equal(db.inTransaction, false)
@@ -414,7 +424,7 @@ test('response collection failure after awarding the draw rolls the entire origi
         assert.deepEqual(facts(p), [])
         assert.equal(row(p).remainingNumber, 2)
     } finally { fault.mock.restore() }
-    data(await post(app, p, 'exec'))
+    data(await post(app, p, 'exec', request))
     assert.equal(amount(p, CURRENCY), 9990)
     assert.equal(amount(p, REWARD), 1)
     assert.deepEqual(facts(p), [{ id: REWARD_KEY, number: 1 }])
@@ -422,6 +432,7 @@ test('response collection failure after awarding the draw rolls the entire origi
 
 for (const fault of ['delete', 'update']) test(`reset ${fault} failure rolls back cleared facts and reset count`, async t => {
     const p = await subject(), app = await appFor(t, master(2))
+    const request = { api_count: ++p.apiCount }
     seedBox(p, { remaining: 0, closed: true, drawn: 2, resets: 4 })
     if (fault === 'delete') db.exec(`CREATE TRIGGER box_fixture_fault BEFORE DELETE ON players_box_gacha_drawn_rewards
         WHEN OLD.player_id=${p.playerId} BEGIN SELECT RAISE(ABORT,'fixture reset-delete failure'); END`)
@@ -429,14 +440,14 @@ for (const fault of ['delete', 'update']) test(`reset ${fault} failure rolls bac
         WHEN NEW.player_id=${p.playerId} BEGIN SELECT RAISE(ABORT,'fixture reset-update failure'); END`)
     const before = digest(p)
     try {
-        const failed = await post(app, p, 'reset')
+        const failed = await post(app, p, 'reset', request)
         assert.equal(failed.statusCode, 500, failed.body)
         assert.equal(db.inTransaction, false)
         assert.equal(digest(p), before)
         assert.equal(row(p).resetTimes, 4)
         assert.deepEqual(facts(p), [{ id: REWARD_KEY, number: 2 }])
     } finally { db.exec('DROP TRIGGER box_fixture_fault') }
-    data(await post(app, p, 'reset'))
+    data(await post(app, p, 'reset', request))
     assert.equal(row(p).resetTimes, 5)
     assert.deepEqual(facts(p), [])
 })

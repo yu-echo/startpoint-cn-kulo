@@ -38,6 +38,7 @@ import { buildPlayerShopSalesEntrySync, getShopQuotaStateSync, hasShopQuota, rec
 import { getPlayerShopCampaignLineupSync, selectPlayerShopCampaignLineupSync } from "../../data/domains/shop-campaign-lineup";
 import { isShopItemInSelectedLineupSync, validateShopCampaignSelection } from "../../lib/shop-campaign-lineup";
 import { bondTokenEquipmentForShopItem, getBondTokenExchangeCountSync } from "../../lib/bond-token-exchange";
+import { readGameplayMutationRequestSync, recordGameplayMutationResponseSync } from "../../lib/gameplay-mutation-receipt";
 
 const GENERAL_SHOP_CDN_KEYS: Set<number> = new Set(CDN_GENERAL_SHOP_WHITELIST);
 
@@ -374,39 +375,6 @@ const routes = async (fastify: FastifyInstance) => {
             "message": "No players bound to account."
         })
 
-        // get the shop item's data
-        const shopItemData = getShopItemSync(shopType, shopItemId)
-        if (shopItemData === null) return reply.status(400).send({
-            "error": "Bad Request",
-            "message": "Shop item with specified id does not exist."
-        })
-
-        // Event products may still be present in a stale client cache after
-        // their exchange window closes. The listing filter is not a security
-        // boundary, so enforce the same period again before any costs change.
-        if (!(shopContentDecision(shopType, shopItemId, "exchange", Date.now())
-            ?? (shopType !== ShopType.EVENT_ITEM || isShopItemAvailable(shopItemData, getServerDate())))) {
-            return reply.status(400).send({
-                "error": "Bad Request",
-                "message": "Event shop item is not currently available."
-            })
-        }
-
-        const uniqueEquipmentId = getUniqueHoldingEquipmentRewardId(shopType, shopItemData)
-        if (uniqueEquipmentId !== null && playerOwnsEquipmentSync(playerId, uniqueEquipmentId)) {
-            return reply.status(400).send({ error: "Bad Request", message: "Player already owns this equipment." })
-        }
-
-        let degreeIds: number[]
-        try {
-            degreeIds = getShopDegreeRewards(shopItemData, purchaseAmount)
-        } catch (error) {
-            return reply.status(400).send({
-                "error": "Bad Request",
-                "message": error instanceof Error ? error.message : "Invalid degree reward."
-            })
-        }
-
         type BuyRejection = { ok: false, status: 400 | 500, message: string }
         const reject = (message: string, status: 400 | 500 = 400): BuyRejection => ({ ok: false, status, message })
         const isEnhancementShop = shopType === ShopType.TREASURE_EQUIPMENT
@@ -418,6 +386,20 @@ const routes = async (fastify: FastifyInstance) => {
         const outcome = await runPersistenceTransaction({
             domain: "shop", playerId, operation: isEnhancementShop ? "enhancement_purchase" : "purchase",
         }, () => {
+            const mutation = readGameplayMutationRequestSync(playerId, {
+                headerToken: request.headers.login_token, body, accountId: viewerIdSession.accountId,
+            }, "shop.buy", { shopType, shopItemId, purchaseAmount })
+            if (!mutation) return reject("Invalid or superseded gameplay request.")
+            if (mutation.response) return { ok: true as const, data: mutation.response }
+            const shopItemData = getShopItemSync(shopType, shopItemId)
+            if (shopItemData === null) return reject("Shop item with specified id does not exist.")
+            const uniqueEquipmentId = getUniqueHoldingEquipmentRewardId(shopType, shopItemData)
+            let degreeIds: number[]
+            try {
+                degreeIds = getShopDegreeRewards(shopItemData, purchaseAmount)
+            } catch (error) {
+                return reject(error instanceof Error ? error.message : "Invalid degree reward.")
+            }
             const player = getPlayerSync(playerId)
             if (player === null) return reject("No players bound to account.", 500)
             const now = getServerDate()
@@ -598,7 +580,7 @@ const routes = async (fastify: FastifyInstance) => {
 
             // Equipment enhancement shop: update equipment enhancement level
             if (enhancementPurchase !== null) {
-                const { equipmentId, newLevel } = enhancementPurchase
+                const { equipmentId, newLevel, grantedLevelCount } = enhancementPurchase
                 updatePlayerEquipmentSync(playerId, equipmentId, { enhancementLevel: newLevel })
                 addEffectiveShopPurchaseCountSync(
                     playerId,
@@ -608,14 +590,22 @@ const routes = async (fastify: FastifyInstance) => {
                     now,
                 )
                 const equipmentDegreeIds = grantEquipmentDegreeRewardsSync(playerId, [equipmentId])
-                return {
-                    ok: true as const,
-                    kind: "enhancement" as const,
-                    enhancementPurchase,
-                    equipmentDegreeIds,
-                    itemList,
-                    balances: { freeVmoney, vmoney, freeMana, paidMana, bondTokens },
+                const currentEquipment = getPlayerEquipmentSync(playerId, equipmentId)!
+                gameVerboseLog(() =>
+                    `[shop:enhancement-benefit] player=${playerId} equipment=${equipmentId} ` +
+                    `item=${shopItemId} grantedLevels=${grantedLevelCount} newLevel=${newLevel}`
+                )
+                const data = {
+                    user_info: { vmoney, free_vmoney: freeVmoney, paid_mana: paidMana,
+                        free_mana: freeMana, bond_token: bondTokens },
+                    character_list: [],
+                    equipment_list: [clientSerializeEquipment(equipmentId, currentEquipment)],
+                    degree_list: equipmentDegreeIds.map(degreeId => ({ viewer_id: viewerId, degree_id: degreeId })),
+                    item_list: itemList,
+                    mail_arrived: false,
                 }
+                recordGameplayMutationResponseSync(playerId, mutation, data)
+                return { ok: true as const, data }
             }
 
             // Character rewards expand per purchase. Reject invalid stock/cost
@@ -635,100 +625,40 @@ const routes = async (fastify: FastifyInstance) => {
             }
             addEffectiveShopPurchaseCountSync(playerId, shopType, shopItemId, purchaseAmount, now)
             const abyssDegreeIds = grantPurchasedAbyssShopDegreeRewardSync(playerId, shopType, [{ shopItemId }])
-            return {
-                ok: true as const,
-                kind: "purchase" as const,
-                rewardResult: result,
-                abyssDegreeIds,
-                itemList,
-                manaSpent,
-            }
-        })
-
-        if (!outcome.ok) return reply.status(outcome.status).send({
-            "error": outcome.status === 500 ? "Internal Server Error" : "Bad Request",
-            "message": outcome.message
-        })
-
-        if (outcome.kind === "enhancement") {
-            const { equipmentId, newLevel, grantedLevelCount } = outcome.enhancementPurchase
-            const { freeVmoney, vmoney, freeMana, paidMana, bondTokens } = outcome.balances
-            const currentEquipment = getPlayerEquipmentSync(playerId, equipmentId)!
-            gameVerboseLog(() =>
-                `[shop:enhancement-benefit] player=${playerId} equipment=${equipmentId} ` +
-                `item=${shopItemId} grantedLevels=${grantedLevelCount} newLevel=${newLevel}`
+            degreeIds.push(...abyssDegreeIds)
+            recordTreasureShopProgress(playerId, shopType, purchaseAmount, manaSpent)
+            const characterList = reconcileAwakeUnlockCharacterList(
+                playerId, (result.character_list ?? []) as Record<string, unknown>[],
             )
-
-            reply.header("content-type", "application/x-msgpack")
-            return reply.status(200).send({
-                "data_headers": generateDataHeaders({
-                    viewer_id: viewerId
-                }),
-                "data": {
-                    "user_info": {
-                        "vmoney": vmoney,
-                        "free_vmoney": freeVmoney,
-                        "paid_mana": paidMana,
-                        "free_mana": freeMana,
-                        "bond_token": bondTokens
-                    },
-                    "character_list": [],
-                    "equipment_list": [clientSerializeEquipment(equipmentId, currentEquipment)],
-                    "degree_list": outcome.equipmentDegreeIds.map(degreeId => ({
-                        viewer_id: viewerId,
-                        degree_id: degreeId,
-                    })),
-                    "item_list": outcome.itemList,
-                    "mail_arrived": false
-                }
-            })
-        }
-
-        const { rewardResult, itemList, manaSpent } = outcome
-        degreeIds.push(...outcome.abyssDegreeIds)
-
-        recordTreasureShopProgress(playerId, shopType, purchaseAmount, manaSpent)
-        const characterList = reconcileAwakeUnlockCharacterList(
-            playerId,
-            (rewardResult?.character_list ?? []) as Record<string, unknown>[]
-        )
-
-        // verify DB write
-        const afterPlayer = getPlayerSync(playerId)!
-        gameVerboseLog(() =>
-            `[shop:buy] after DB freeMana=${afterPlayer.freeMana} paidMana=${afterPlayer.paidMana} ` +
-            `freeVmoney=${afterPlayer.freeVmoney} vmoney=${afterPlayer.vmoney} ` +
-            `rewardItems=${JSON.stringify(rewardResult?.items ?? {})}`
-        )
-
+            const afterPlayer = getPlayerSync(playerId)!
+            gameVerboseLog(() =>
+                `[shop:buy] after DB freeMana=${afterPlayer.freeMana} paidMana=${afterPlayer.paidMana} ` +
+                `freeVmoney=${afterPlayer.freeVmoney} vmoney=${afterPlayer.vmoney} ` +
+                `rewardItems=${JSON.stringify(result.items ?? {})}`
+            )
+            const data: Record<string, unknown> = {
+                user_info: { vmoney: afterPlayer.vmoney, free_vmoney: afterPlayer.freeVmoney,
+                    paid_mana: afterPlayer.paidMana, free_mana: afterPlayer.freeMana,
+                    bond_token: afterPlayer.bondToken, exp_pool: afterPlayer.expPool },
+                character_list: characterList,
+                equipment_list: result.equipment_list ?? [],
+                item_list: { ...itemList, ...(result.items ?? {}) },
+                degree_list: degreeIds.map(degreeId => ({ viewer_id: viewerId, degree_id: degreeId })),
+                mail_arrived: false,
+            }
+            mergeShopDegreeSettlement(data, playerId, viewerId)
+            recordGameplayMutationResponseSync(playerId, mutation, data)
+            return { ok: true as const, data }
+        })
+        if (!outcome.ok) return reply.status(outcome.status).send({
+            error: outcome.status === 500 ? "Internal Server Error" : "Bad Request", message: outcome.message,
+        })
         reply.header("content-type", "application/x-msgpack")
-        const responseData: Record<string, unknown> = {
-            "user_info": {
-                "vmoney": afterPlayer.vmoney,
-                "free_vmoney": afterPlayer.freeVmoney,
-                "paid_mana": afterPlayer.paidMana,
-                "free_mana": afterPlayer.freeMana,
-                "bond_token": afterPlayer.bondToken,
-                "exp_pool": afterPlayer.expPool,
-            },
-            "character_list": characterList,
-            "equipment_list": rewardResult?.equipment_list ?? [],
-            "item_list": {
-                ...itemList,
-                ...(rewardResult?.items ?? {})
-            },
-            "degree_list": degreeIds.map(degreeId => ({
-                viewer_id: viewerId,
-                degree_id: degreeId,
-            })),
-            "mail_arrived": false
-        }
-        mergeShopDegreeSettlement(responseData, playerId, viewerId)
         return reply.status(200).send({
             "data_headers": generateDataHeaders({
                 viewer_id: viewerId
             }),
-            "data": responseData
+            "data": outcome.data
         })
     })
 
@@ -900,6 +830,11 @@ const routes = async (fastify: FastifyInstance) => {
         const outcome = await runPersistenceTransaction({
             domain: "shop", playerId, operation: "recover_stamina",
         }, () => {
+            const mutation = readGameplayMutationRequestSync(playerId, {
+                headerToken: request.headers.login_token, body, accountId: session.accountId,
+            }, "shop.recover_stamina", {})
+            if (!mutation) return { kind: "invalid" as const }
+            if (mutation.response) return { kind: "applied" as const, data: mutation.response }
             const player = getPlayerSync(playerId)
             if (!player) return { kind: "missing" as const }
 
@@ -917,23 +852,32 @@ const routes = async (fastify: FastifyInstance) => {
 
             // Calculate recovery amount (capped at overflow)
             const afterStamina = Math.min(currentStamina + recoveryValue, maxOverflow)
+            const healTime = new Date()
             updatePlayerSync({
                 id: playerId,
                 stamina: afterStamina,
-                staminaHealTime: new Date(),
+                staminaHealTime: healTime,
                 freeVmoney: vmoneyDeduction.freeBalance,
                 vmoney: vmoneyDeduction.paidBalance,
             })
-            return {
-                kind: "applied" as const,
-                currentStamina,
-                afterStamina,
-                vmoneyDeduction,
-                previousFreeVmoney: player.freeVmoney,
-                previousVmoney: player.vmoney,
+            const data = {
+                user_info: {
+                    stamina: afterStamina, stamina_heal_time: realToVirtual(healTime),
+                    vmoney: vmoneyDeduction.paidBalance, free_vmoney: vmoneyDeduction.freeBalance,
+                },
             }
+            recordGameplayMutationResponseSync(playerId, mutation, data)
+            gameVerboseLog(() =>
+                `[RECOVER-STAMINA] player ${playerId}: stamina ${currentStamina}->${afterStamina} (+${afterStamina - currentStamina}), ` +
+                `freeVmoney ${player.freeVmoney}->${vmoneyDeduction.freeBalance}, ` +
+                `vmoney ${player.vmoney}->${vmoneyDeduction.paidBalance}`
+            )
+            return { kind: "applied" as const, data }
         })
 
+        if (outcome.kind === "invalid") return reply.status(400).send({
+            error: "Bad Request", message: "Invalid or superseded gameplay request.",
+        })
         if (outcome.kind === "missing") return reply.status(500).send({
             "error": "Internal Server Error", "message": "Player not found."
         })
@@ -960,26 +904,10 @@ const routes = async (fastify: FastifyInstance) => {
             })
         }
 
-        const { currentStamina, afterStamina, vmoneyDeduction } = outcome
-        const actualRecovery = afterStamina - currentStamina
-
-        gameVerboseLog(() =>
-            `[RECOVER-STAMINA] player ${playerId}: stamina ${currentStamina}->${afterStamina} (+${actualRecovery}), ` +
-            `freeVmoney ${outcome.previousFreeVmoney}->${vmoneyDeduction.freeBalance}, ` +
-            `vmoney ${outcome.previousVmoney}->${vmoneyDeduction.paidBalance}`
-        )
-
         reply.header("content-type", "application/x-msgpack")
         return reply.status(200).send({
             "data_headers": generateDataHeaders({ viewer_id: viewerId }),
-            "data": {
-                "user_info": {
-                    "stamina": afterStamina,
-                    "stamina_heal_time": realToVirtual(new Date()),
-                    "vmoney": vmoneyDeduction.paidBalance,
-                    "free_vmoney": vmoneyDeduction.freeBalance,
-                }
-            }
+            "data": outcome.data,
         })
     })
 

@@ -10,10 +10,15 @@ const players=require('../out/data/domains/player'),operations=require('../out/l
 const coordinator=require('../out/lib/persistence-coordinator'),transaction=coordinator.runPersistenceTransaction
 const passes=require('../out/data/domains/pass-card'),passDefinitions=require('../out/lib/pass-card')
 const assets=require('../out/lib/assets'),items=require('../out/data/domains/item')
-let app,playerId,viewerId,passId,rewards
+let app,playerId,viewerId,passId,rewards,loginToken,apiCount=0
 const open={readiness:'verified',evidence:'synthetic fixture, no device acceptance',flags:{visible:true,enter:true,claim:true},endsAtMs:null}
 function control(key,input={}) {const store=operations.contentOperations();return store.update(key,{expectedRevision:store.revision(),catalogDigest:store.digest,reason:'isolated fixture',...input},Date.now())}
-function post(url,body={}) {return app.inject({method:'POST',url,payload:{viewer_id:viewerId,...body}})}
+function openBoxParent(row) {
+    const association=require('../out/lib/content-box-associations').getContentBoxAssociation(row.key)
+    assert.ok(association?.relationshipMatches,'box fixture requires its current exact native parent')
+    control(association.parentKey,{...open,flags:{visible:true,enter:true,exchange:true}})
+}
+function post(url,body={}) {return app.inject({method:'POST',url,headers:{login_token:loginToken},payload:{viewer_id:viewerId,...body,api_count:++apiCount}})}
 function decode(response) {assert.equal(response.statusCode,200,response.body);return unpack(Buffer.from(response.body,'base64')).data}
 function resultCode(response) {assert.equal(response.statusCode,200,response.body);return unpack(Buffer.from(response.body,'base64')).data_headers.result_code}
 function passRows() {return {state:passes.getPlayerPassCardStateSync(playerId,passId),records:passes.getPlayerPassCardRewardRecordsSync(playerId,passId)}}
@@ -28,6 +33,11 @@ before(async()=>{
     playerId=players.insertDefaultPlayerSync(account.id).id;viewerId=850000000+playerId
     require('../out/data/activeAccount').saveAccountDefaultPlayer(account.id,playerId)
     db.prepare('INSERT INTO sessions(token,account_id,expires,type) VALUES(?,?,?,2)').run(String(viewerId),account.id,'2099-01-01T00:00:00Z')
+    const identities=require('../out/lib/gameplay-request-identity')
+    identities.initializeGameplayRequestIdentitySchemaSync(db)
+    loginToken=db.transaction(()=>identities.issueGameplayLoginTokenSync(db,{
+        accountId:account.id,viewerId,udid:'economy-fixture-'+viewerId,expiresAt:Date.now()+86400000,
+    }))()
     const row=operations.contentCatalog.rows.find(row=>row.type==='pass_card_event'&&row.definitionEvidence?.status==='matched'
         &&operations.contentCapabilities(row).includes('claim')&&passDefinitions.getPassCardEventDefinition(row.id))
     assert.ok(row,'matched pass fixture')
@@ -151,7 +161,7 @@ test('ordinary and event products preserve stock, budgets and progress through c
                 if(context.operation==='purchase')queued=true
                 return transaction(context,fn,options)
             }
-            try {assert.equal((await post('/shop/buy',body)).statusCode,400);assert.equal(queued,false);assert.deepEqual(playerTables(),saved)}
+            try {assert.equal((await post('/shop/buy',body)).statusCode,400);assert.equal(queued,true);assert.deepEqual(playerTables(),saved)}
             finally {coordinator.runPersistenceTransaction=transaction}
             decode(await post('/shop/bulk_buy',{shop_type:shopType,buy_item_list:{[row.id]:1},api_count:2}))
             assert.deepEqual(playerTables(),saved,'bulk skips an explicitly closed product without costs or stock changes')
@@ -246,6 +256,7 @@ test('box controls guard draws and preserve inventory, required-box rules, termi
     }
     const boxes=require('../out/data/domains/boxGacha'),master=assets.getBoxGachaSync(1001)
     assert.ok(master?.boxes[1])
+    openBoxParent(row)
     items.setPlayerItemSync(playerId,master.redeemItemId,10000000)
     const exec={box_gacha_id:1001,box_id:1,number:1,stop_on_featured_rewards:false,api_count:1}
     control(row.key,enabled);control(row.key,{flags:{enter:false}})
@@ -254,7 +265,7 @@ test('box controls guard draws and preserve inventory, required-box rules, termi
         if(context.operation==='box_exec')queued=true
         return transaction(context,fn,options)
     }
-    try {assert.equal((await post('/box/exec',exec)).statusCode,400);assert.equal(queued,false);assert.deepEqual(playerTables(),saved)}
+    try {assert.equal((await post('/box/exec',exec)).statusCode,400);assert.equal(queued,true);assert.deepEqual(playerTables(),saved)}
     finally {coordinator.runPersistenceTransaction=transaction}
     control(row.key,enabled)
     coordinator.runPersistenceTransaction=async(context,fn,options)=>{
@@ -285,6 +296,10 @@ test('box controls guard draws and preserve inventory, required-box rules, termi
     }
     boxes.updatePlayerBoxGachaSync(playerId,1001,{boxId:1,isClosed:false,remainingNumber:0})
     control(row.key,{flags:{enter:false,claim:true}})
+    saved=playerTables()
+    assert.equal((await post('/box/close',{box_gacha_id:1001,box_id:1})).statusCode,400,'linked lifecycle requires participation open before the first close')
+    assert.deepEqual(playerTables(),saved)
+    control(row.key,{flags:{enter:true,claim:true}})
     const settled=decode(await post('/box/close',{box_gacha_id:1001,box_id:1}))
     control(row.key,{flags:{claim:false}})
     saved=playerTables()
@@ -330,6 +345,7 @@ test('July raid box closes only its exact tier and resets only an empty resettab
         &&Object.values(master.boxes[boxId]).some(reward=>reward.tier===1))
     const first=Number(firstId),all=Object.values(master.boxes[first]).reduce((sum,reward)=>sum+reward.available,0)
     const enabled={...open,flags:{visible:true,enter:true,claim:true}}
+    openBoxParent(row)
     control(row.key,enabled)
     boxes.insertPlayerBoxGachaSync(playerId,row.id,{boxId:first,resetTimes:0,isClosed:false,remainingNumber:all})
     let saved=playerTables()

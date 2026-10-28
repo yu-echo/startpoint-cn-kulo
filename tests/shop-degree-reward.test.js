@@ -14,6 +14,8 @@ const { insertDefaultPlayerSync, getPlayerSync, updatePlayerSync } = require("..
 const { hasPlayerDegreeSync } = require("../out/data/domains/degree")
 const { insertSessionWithToken } = require("../out/data/domains/session")
 const { saveAccountDefaultPlayer } = require("../out/data/activeAccount")
+const { getDb } = require("../out/data/db")
+const identities = require("../out/lib/gameplay-request-identity")
 
 test("深渊商店称号按一次性库存原子购买，并阻止重复扣款", async t => {
     const account = insertAccountSync({
@@ -30,6 +32,23 @@ test("深渊商店称号按一次性库存原子购买，并阻止重复扣款",
         type: 2,
     })
 
+    const db = getDb()
+    identities.initializeGameplayRequestIdentitySchemaSync(db)
+    const loginToken = db.transaction(() => identities.issueGameplayLoginTokenSync(db, {
+        accountId: account.id, viewerId, udid: `shop-degree-${viewerId}`, expiresAt: Date.now() + 86_400_000,
+    }))()
+    // The title contract is historical; explicitly open only this isolated fixture.
+    const operations = require("../out/lib/content-operations"), store = operations.contentOperations()
+    const product = operations.contentCatalog.rows.find(row => row.key === "event_item_shop:9700118")
+    assert.ok(product?.parentKey)
+    for (const key of [product.parentKey, product.key]) store.update(key, {
+        expectedRevision: store.revision(), catalogDigest: store.digest, reason: "Isolated title purchase regression",
+        actionOverrides: {
+            visible: { enabled: true, endsAtMs: null, readiness: "verified", evidence: "Synthetic title purchase fixture" },
+            exchange: { enabled: true, endsAtMs: null, readiness: "verified", evidence: "Synthetic title purchase fixture" },
+        },
+    }, Date.now())
+    let apiCount = 0
     const app = Fastify({ logger: false })
     app.addHook("onSend", (_request, reply, payload, done) => {
         const contentType = String(reply.getHeader("content-type") ?? "")
@@ -44,10 +63,10 @@ test("深渊商店称号按一次性库存原子购买，并阻止重复扣款",
     const buy = () => app.inject({
         method: "POST",
         url: "/shop/buy",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", login_token: loginToken },
         payload: {
             viewer_id: viewerId,
-            api_count: 1,
+            api_count: ++apiCount,
             shop_type: 4,
             shop_item_id: 9700118,
             number: 1,
