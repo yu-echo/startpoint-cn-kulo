@@ -17,8 +17,31 @@ process.env.NPC_READY_DELAY_MS = '5'
 const originalLoad = Module._load
 Module._load = function (request, parent, main) {
     const resolved = Module._resolveFilename(request, parent)
-    if (resolved === path.join(output, 'data/db.js')) throw Error('AI admission fixture must not open a database')
-    if (resolved === path.join(output, 'lib/assets.js')) return { getQuestFromCategorySync: () => undefined }
+    // 上游把 lib/quest/battle-roster 这类「顶层 import getDb」的模块拉进了共斗链路。
+    // 在模块加载阶段就抛错会把「不允许触碰数据库」误判成「不允许 import 数据库模块」，
+    // 所以这里改成允许加载、但任何真实访问都抛错——断言的不变量反而更强：
+    // 被测路径只要真去拿数据库就立刻炸。
+    if (resolved === path.join(output, 'data/db.js')) return {
+        setDbOverride: () => { throw Error('AI admission fixture must not open a database') },
+        getDb: () => { throw Error('AI admission fixture must not open a database') },
+    }
+    // 上游把 battle-roster / computer-degree 这类模块拉进共斗链路后，加载阶段会用到
+    // 更多 assets 访问器。这里用 Proxy 兜底：已知的给确定返回值，未知的一律 no-op，
+    // 避免每加一个导入就要回来补一次桩。
+    if (resolved === path.join(output, 'lib/assets.js')) {
+        const stubs = {
+            getQuestFromCategorySync: () => undefined,
+            getCharacterManaNodesSync: () => null,
+            getCharacterManaNodes: () => null,
+            getCharacterDataSync: () => null,
+            getCharacterEvolutionSync: () => null,
+        }
+        return new Proxy(stubs, {
+            get: (target, prop) => prop === '__esModule' ? true
+                : (prop in target ? target[prop] : () => undefined),
+            has: () => true,
+        })
+    }
     return originalLoad.call(this, request, parent, main)
 }
 const intervals = [], originalInterval = global.setInterval
