@@ -22,6 +22,7 @@ const operations = load('lib/content-operations'), assets = load('lib/assets')
 const associations = load('lib/content-box-associations')
 const players = load('data/domains/player'), boxes = load('data/domains/boxGacha'), items = load('data/domains/item')
 const active = load('data/domains/quest_active'), coordinator = load('lib/persistence-coordinator')
+const identities = load('lib/gameplay-request-identity')
 const originalTransaction = coordinator.runPersistenceTransaction, originalNow = Date.now
 const WORLD = { parentKey: 'world_story_event:100407', boxKey: 'box_gacha:11' }
 const RAID = { parentKey: 'raid_event:7', boxKey: 'box_gacha:28' }
@@ -57,9 +58,19 @@ function fixture() {
     load('data/activeAccount').saveAccountDefaultPlayer(account.id, player.id)
     db.prepare('INSERT INTO sessions(token,account_id,expires,type) VALUES(?,?,?,2)').run(String(viewer), account.id, '2099-01-01T00:00:00Z')
     db.transaction(() => load('lib/server-clock-state').ensurePlayerClockStateForLoadSync(player.id, db))()
-    return { id: player.id, accountId: account.id, viewer }
+    return login({ id: player.id, accountId: account.id, viewer })
 }
-const post = (player, url, body = {}) => app.inject({ method: 'POST', url, payload: { viewer_id: player.viewer, api_count: 1, ...body } })
+function login(player) {
+    player.loginToken = db.transaction(() => identities.issueGameplayLoginTokenSync(db, {
+        accountId: player.accountId, viewerId: player.viewer, udid: `box-parent-${player.id}`,
+        expiresAt: Date.parse('2099-01-01T00:00:00Z'),
+    }))()
+    player.apiCount = 0
+    return player
+}
+const post = (player, url, body = {}) => app.inject({ method: 'POST', url,
+    headers: { login_token: player.loginToken },
+    payload: { viewer_id: player.viewer, api_count: body.api_count ?? ++player.apiCount, ...body } })
 function response(result) { assert.equal(result.statusCode, 200, result.body); return result.json() }
 function data(result) { return response(result).data }
 const body = (pair, boxId = 1) => ({ box_gacha_id: idOf(pair.boxKey), box_id: boxId, number: 1, stop_on_featured_rewards: false })
@@ -72,6 +83,20 @@ function boxFacts(player) {
         db.prepare(`SELECT * FROM ${table} WHERE player_id=?`).all(player.id).map(row => JSON.stringify(row)).sort()]))
 }
 function credit(player, pair) { const master = assets.getBoxGachaSync(idOf(pair.boxKey)); items.setPlayerItemSync(player.id, master.redeemItemId, 100000); return master }
+function prepareRaidParties(player) {
+    const characters = load('data/domains/character'), parties = load('data/domains/party')
+    const category = load('data/types').PartyCategory.RAID
+    const leaders = [1, 111015, 243001]
+    const list = Object.fromEntries(leaders.map((id, index) => {
+        if (!characters.getPlayerCharacterSync(player.id, id)) characters.insertDefaultPlayerCharacterSync(player.id, id)
+        assert.ok(assets.getCharacterDataSync(id), 'the Raid fixture uses existing owned characters')
+        return [index + 1, { category, name: `Lifecycle Raid ${index + 1}`, edited: true,
+            characterIds: [id, null, null], unisonCharacterIds: [null, null, null],
+            equipmentIds: [null, null, null], abilitySoulIds: [null, null, null],
+            options: { allowOtherPlayersToHealMe: true } }]
+    }))
+    parties.ensurePlayerPartyGroupListSync(player.id, { 1: { category, colorId: 15, list } })
+}
 function seedFinishedBox(player, pair, boxId, resets = 0) {
     const rewards = assets.getBoxGachaSync(idOf(pair.boxKey)).boxes[boxId]
     boxes.insertPlayerBoxGachaSync(player.id, idOf(pair.boxKey), { boxId, resetTimes: resets, remainingNumber: 0, isClosed: true })
@@ -104,6 +129,7 @@ function assertPair(snapshot, pair, enabled) {
 }
 before(async () => {
     db = load('data/db').getDb(); store = operations.contentOperations()
+    identities.initializeGameplayRequestIdentitySchemaSync(db)
     assert.equal(path.dirname(fs.realpathSync(db.name)), fs.realpathSync(directory))
     app = require('fastify')({ logger: false })
     app.addHook('onSend', (_request, reply, value, done) => done(null,
@@ -252,14 +278,15 @@ test('a disabled reviewed parent exchange or child draw action closes the group 
 test('a real draw failure after charge and reward processing rolls back every player write and retry grants once', async () => {
     preparePair(WORLD)
     const player = fixture(), master = credit(player, WORLD), before = portable(player)
+    const request = { ...body(WORLD), api_count: ++player.apiCount }
     db.exec(`CREATE TRIGGER box_lifecycle_fail_history BEFORE INSERT ON players_box_gacha_drawn_rewards
         WHEN NEW.player_id=${player.id} BEGIN SELECT RAISE(ABORT,'box lifecycle injected history failure'); END`)
     try {
-        const failed = await post(player, '/box/exec', body(WORLD))
+        const failed = await post(player, '/box/exec', request)
         assert.equal(failed.statusCode, 500, failed.body)
         assert.deepEqual(portable(player), before)
     } finally { db.exec('DROP TRIGGER box_lifecycle_fail_history') }
-    data(await post(player, '/box/exec', body(WORLD)))
+    data(await post(player, '/box/exec', request))
     assert.equal(items.getPlayerItemSync(player.id, master.redeemItemId), 100000 - master.redeemItemCount)
     assert.equal(boxes.getPlayerBoxGachaDrawnRewardsSync(player.id, 11, 1).reduce((n, row) => n + row.number, 0), 1)
 })
@@ -294,6 +321,7 @@ test('real refresh and relogin load snapshots preserve old box facts and report 
     // A newly authenticated session for the same saved player simulates relogin.
     const relogin = { ...player, viewer: viewerSequence++ }
     db.prepare('INSERT INTO sessions(token,account_id,expires,type) VALUES(?,?,?,2)').run(String(relogin.viewer), player.accountId, '2099-01-01T00:00:00Z')
+    login(relogin)
     assertPair(data(await post(relogin, '/cn/load')).content_operations, RAID, false)
     assert.deepEqual(boxFacts(player), saved)
     publish(RAID.parentKey, true)
@@ -313,6 +341,7 @@ test('a Raid run registered before closure or expiry can settle exactly once whi
     for (const expire of [false, true]) {
         preparePair(RAID)
         const player = fixture(), play = randomUUID(), quest = 7001
+        prepareRaidParties(player)
         response(await post(player, '/raid/summary', { event_id: 7 }))
         assert.equal(response(await post(player, '/raid/battle/start', { event_id: 7, quest_id: quest, party_group_id: 1, play_id: play,
             use_auto_start_point: false, is_auto_start_mode: false })).data_headers.result_code, 1)
@@ -325,9 +354,10 @@ test('a Raid run registered before closure or expiry can settle exactly once whi
             assert.equal(response(await post(player, '/raid/battle/start', { event_id: 7, quest_id: quest, party_group_id: 1,
                 play_id: randomUUID(), use_auto_start_point: false, is_auto_start_mode: false })).data_headers.result_code, 4050)
             assert.deepEqual(portable(player), registered)
-            assert.equal(response(await post(player, '/single/finish', finishBody(quest, play))).data_headers.result_code, 1)
+            const finishRequest = { ...finishBody(quest, play), api_count: ++player.apiCount }
+            assert.equal(response(await post(player, '/single/finish', finishRequest)).data_headers.result_code, 1)
             const settled = portable(player)
-            assert.equal(response(await post(player, '/single/finish', finishBody(quest, play))).data_headers.result_code, 1)
+            assert.equal(response(await post(player, '/single/finish', finishRequest)).data_headers.result_code, 1)
             assert.deepEqual(portable(player), settled)
         } finally { Date.now = originalNow }
     }

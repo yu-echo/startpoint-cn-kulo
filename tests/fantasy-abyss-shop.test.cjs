@@ -11,11 +11,17 @@ test('Fantasy material purchases, shared limits and acquisition routes use the w
  require('../out/data/activeAccount').saveAccountDefaultPlayer(account.id,player.id);
  const viewer=88001998;
  await require('../out/data/domains/session').insertSessionWithToken({token:String(viewer),accountId:account.id,expires:new Date(Date.now()+86400000),type:2});
+ const identities=require('../out/lib/gameplay-request-identity');identities.initializeGameplayRequestIdentitySchemaSync(db);
+ const loginToken=db.transaction(()=>identities.issueGameplayLoginTokenSync(db,{accountId:account.id,viewerId:viewer,udid:'fantasy-'+viewer,expiresAt:Date.now()+86400000}))();let apiCount=0;
+ // Open the four historical products in this isolated operations store only.
+ const operations=require('../out/lib/content-operations'),store=operations.contentOperations(),keys=new Set();
+ for(const id of [9700213,9700214,9700313,9700314]){const row=operations.contentCatalog.rows.find(row=>row.key==='event_item_shop:'+id);assert.ok(row?.parentKey);keys.add(row.parentKey);keys.add(row.key);}
+ for(const key of keys)store.update(key,{expectedRevision:store.revision(),catalogDigest:store.digest,reason:'Isolated fantasy shop regression',actionOverrides:{visible:{enabled:true,endsAtMs:null,readiness:'verified',evidence:'Synthetic shared-stock fixture'},exchange:{enabled:true,endsAtMs:null,readiness:'verified',evidence:'Synthetic shared-stock fixture'}}},Date.now());
  const app=require('fastify')({logger:false});
  app.addHook('onSend',(_req,reply,payload,done)=>done(null,String(reply.getHeader('content-type')||'').startsWith('application/x-msgpack')&&typeof payload==='object'?JSON.stringify(payload):payload));
  await app.register(require('../out/routes/api/shop').default,{prefix:'/shop'});
  await app.register(require('../out/routes/api/howToGet').default,{prefix:'/how_to_get'});
- const post=async(url,data,status=200)=>{const r=await app.inject({method:'POST',url,payload:{viewer_id:viewer,api_count:1,...data}});assert.equal(r.statusCode,status,r.payload);return r.json();};
+ const post=async(url,data,status=200)=>{const r=await app.inject({method:'POST',url,headers:{login_token:loginToken},payload:{viewer_id:viewer,api_count:++apiCount,...data}});assert.equal(r.statusCode,status,r.payload);return r.json();};
  const list=async()=> (await post('/shop/get_sales_list',{shop_types:[],boss_coin_shop_category_ids:[],event_list:[{event_type:11,event_ids:[700098]},{event_type:0,event_ids:[300098]}]})).data.sales_list;
  const count=i=>getPlayerItemSync(player.id,i)||0;
  try {

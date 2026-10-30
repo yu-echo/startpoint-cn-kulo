@@ -90,6 +90,11 @@ import type { BattleQuest, PlayerRewardResult } from "../../types"
 import type { Player, PlayerQuestProgress } from "../../../data/types"
 import type { ActiveQuest, FinishBody } from "../../../routes/api/singleBattleQuest"
 import type { FinishContext } from "./types"
+import { resolveBattlePartySync, resolveRaidSubStatistics } from "../battle-roster"
+import { settleBattleBoostPoints } from "./battle-boost"
+import { addManaSafe, buildBattleManaRewards, readFieldMana } from "./field-mana"
+import { assertManaCounterStorageSync } from "../../../data/domains/mana-counter"
+import { isAbyssExEndlessQuest } from "../../abyss-modes"
 import eventChallengePointMap from "../../../../assets/event_challenge_point_map.json"
 
 // Load carnival quest score data. The settlement used to read this table from
@@ -151,10 +156,10 @@ export function settleSingleQuestFinishInTransaction(
     args: SingleFinishTransactionArgs,
 ): SingleFinishTransactionResult {
     const {
-        playerId, viewerId, questCategory, questId, questData, activeQuestData, body,
+        playerId, viewerId, questCategory, questId, questData, activeQuestData, body: reportedBody,
         clearTime, clearRank, questAccomplished, battleFactsAccomplished,
         fiveBossSoloQuest, registered, scoreAttackBorderTiers,
-        manaObtained, displayMode15ManaAsFieldDrop, finishCacheKey, receiptPlayId,
+        displayMode15ManaAsFieldDrop, finishCacheKey, receiptPlayId,
     } = args
     if (receiptPlayId !== null) {
         // Re-check in the actual writer transaction: a queued command can run
@@ -173,6 +178,7 @@ export function settleSingleQuestFinishInTransaction(
     // real-clock registration. An old request body has no trustworthy basis.
     if (activeQuestData.isMulti || !registered || receiptPlayId === null
         || receiptPlayId !== activeQuestData.playId) return { response: null, timing: null }
+    let battleRoster = activeQuestData.battleRoster
     // The queued command may run after another /start replaced the registration.
     // Consume only the registration resolved for this finish, inside its transaction.
     if (registered) {
@@ -185,7 +191,13 @@ export function settleSingleQuestFinishInTransaction(
         }
         activeQuestData.startedAtMs = persisted.startedAtMs ?? undefined
         activeQuestData.clockVersion = persisted.clockVersion
+        battleRoster = persisted.battleRoster
     }
+    const party = resolveBattlePartySync(playerId, battleRoster, reportedBody.statistics?.party,
+        questData.fixedParty !== undefined)
+    const subStatistics = resolveRaidSubStatistics(battleRoster, reportedBody.statistics, reportedBody.sub_statistics)
+    const body: FinishBody = { ...reportedBody, add_mana: readFieldMana(reportedBody.add_mana), statistics: { ...reportedBody.statistics, party },
+        ...(subStatistics === undefined ? {} : { sub_statistics: subStatistics }) }
     const playerData: Player | null = getPlayerSync(playerId)
     if (playerData === null) throw new Error(`Single finish player no longer exists: ${playerId}`)
     const questProgress: PlayerQuestProgress | null = getPlayerSingleQuestProgressSync(playerId, questCategory, questId)
@@ -193,11 +205,13 @@ export function settleSingleQuestFinishInTransaction(
     const canGrantCompletionRewards = nativeChallengePointId === null || questAccomplished
     const beforeRankPoint = playerData.rankPoint
     const newRankPoint = beforeRankPoint + questData.rankPointReward
+    // Recompute from the original request in the actual writer, never trust a
+    // derived total supplied by the request-preparation thread.
+    const manaObtained = isAbyssExEndlessQuest(questCategory, questId) ? 0 : addManaSafe(questData.manaReward, body.add_mana)
+    const manaRewards = buildBattleManaRewards(questData.manaReward, body.add_mana, displayMode15ManaAsFieldDrop)
     const newMana = calculateFreeManaGrant(playerData, manaObtained).freeMana
-    const newBoostPoint = playerData.boostPoint - (activeQuestData.useBoostPoint ? 1 : 0)
-    const newBossBoostPoint = playerData.bossBoostPoint - (activeQuestData.useBossBoostPoint ? 1 : 0)
-    const useBoostPoint = (activeQuestData.useBoostPoint && newBoostPoint >= 0)
-        || (activeQuestData.useBossBoostPoint && newBossBoostPoint >= 0)
+    const { boostPoint: newBoostPoint, bossBoostPoint: newBossBoostPoint, useBoostPoint }
+        = settleBattleBoostPoints(playerData, activeQuestData)
     const questPreviouslyCompleted = questProgress !== null
     const isScoreAttackEvent = questCategory === QuestCategory.SCORE_ATTACK_EVENT
     const bodyTiming = createSingleSettlementBodyTimingCollector(questCategory, !!fiveBossSoloQuest)
@@ -270,7 +284,7 @@ export function settleSingleQuestFinishInTransaction(
             rankPoint: newRankPoint,
             boostPoint: newBoostPoint,
             bossBoostPoint: newBossBoostPoint,
-            totalManaObtained: (playerData.totalManaObtained ?? 0) + manaObtained,
+            manaObtainedDelta: manaObtained,
             maxComboAchieved: Math.max(playerData.maxComboAchieved ?? 0, (body as any).statistics?.max_combo_count ?? 0),
             ...(didLevelUp ? { stamina: playerData.stamina + getMaxStamina(newDegreeId), staminaHealTime: new Date() } : {}),
         })
@@ -434,11 +448,9 @@ export function settleSingleQuestFinishInTransaction(
         if (steamRobotMissionId !== null) {
             console.log(`[MISSION] steam robot challenge cleared: player=${playerId} quest=${questId} mission=${steamRobotMissionId}`)
         }
-        const partyCharacterIdsArray: number[] = []
         bodyTiming.step("experience")
-        for (const value of partyCharacterIds.values()) {
-            if (value !== null && value.id !== null) partyCharacterIdsArray.push(value.id);
-        }
+        const partyCharacterIdsArray = [...new Set(partyCharacterIds.flatMap(value =>
+            value?.id === null || value?.id === undefined ? [] : [value.id]))]
         const addExpAmount = questData.characterExpReward
 
         const rewardCharacterExpResult = givePlayerCharactersExpSync(
@@ -449,6 +461,20 @@ export function settleSingleQuestFinishInTransaction(
         )
 
         bodyTiming.step("mode_rewards")
+        const mainCharacterIds = bodyPartyStatistics.characters.map(value => value?.id ?? null)
+        const unisonCharacterIds = bodyPartyStatistics.unison_characters.map(value => value?.id ?? null)
+        let partyEvolutionImages: Map<number, number | null> | undefined
+        const getPartyEvolutionImages = (ids: (number | null)[]) => {
+            if (partyEvolutionImages === undefined) {
+                const allIds = [...mainCharacterIds, ...unisonCharacterIds]
+                const levels = getCharactersEvolutionImgLevels(playerId, allIds)
+                partyEvolutionImages = new Map()
+                allIds.forEach((id, index) => {
+                    if (id !== null) partyEvolutionImages!.set(id, levels[index]!)
+                })
+            }
+            return ids.map(id => id === null ? null : partyEvolutionImages!.get(id)!)
+        }
         const dataHeaders = generateDataHeaders({
             viewer_id: viewerId
         })
@@ -482,7 +508,7 @@ export function settleSingleQuestFinishInTransaction(
             party: bodyPartyStatistics,
             playerId,
             questId,
-            getEvoLevels: (pid, chars) => getCharactersEvolutionImgLevels(pid, chars),
+            getEvoLevels: (_pid, chars) => getPartyEvolutionImages(chars),
             getFolderMaxRounds: getRushEventFolderMaxRounds,
             getRushEvent: (pid, eid) => getPlayerRushEventSync(pid, eid),
             updateRushEvent: (pid, data) => updatePlayerRushEventSync(pid, data),
@@ -495,7 +521,12 @@ export function settleSingleQuestFinishInTransaction(
             deletePartyList: (pid, eid, bt) => deletePlayerRushEventPlayedPartyListSync(pid, eid, bt),
             getSerializedParties: (pid, eid) => getSerializedPlayerRushEventPlayedPartiesSync(pid, eid),
             getFolderRewards: (eid, fid) => getRushEventFolderClearRewards(eid, fid),
-            giveRewards: (pid, r) => givePlayerRewardsSync(pid, r),
+            giveRewards: (pid, r) => {
+                const result = givePlayerRewardsSync(pid, r)
+                // Folder rewards may add characters; later snapshots must see them.
+                partyEvolutionImages = undefined
+                return result
+            },
         })
         const abyssEnduranceDegrees = finishLeaderboardQuestSync({
             playerId,
@@ -515,19 +546,15 @@ export function settleSingleQuestFinishInTransaction(
             },
             accomplished: questAccomplished,
             clientBattleMs: clearTime,
-            party: {
-                characterIds: bodyPartyStatistics.characters.map(value => value?.id ?? null),
-                unisonCharacterIds: bodyPartyStatistics.unison_characters.map(value => value?.id ?? null),
-                equipmentIds: bodyPartyStatistics.equipments.map(value => value?.id ?? null),
-                abilitySoulIds: bodyPartyStatistics.ability_soul_ids,
-                evolutionImgLevels: getCharactersEvolutionImgLevels(
-                    playerId,
-                    bodyPartyStatistics.characters.map(value => value?.id ?? null),
-                ),
-                unisonEvolutionImgLevels: getCharactersEvolutionImgLevels(
-                    playerId,
-                    bodyPartyStatistics.unison_characters.map(value => value?.id ?? null),
-                ),
+            get party() {
+                return {
+                    characterIds: mainCharacterIds,
+                    unisonCharacterIds,
+                    equipmentIds: bodyPartyStatistics.equipments.map(value => value?.id ?? null),
+                    abilitySoulIds: bodyPartyStatistics.ability_soul_ids,
+                    evolutionImgLevels: getPartyEvolutionImages(mainCharacterIds),
+                    unisonEvolutionImgLevels: getPartyEvolutionImages(unisonCharacterIds),
+                }
             },
         })
         if (
@@ -690,6 +717,9 @@ export function settleSingleQuestFinishInTransaction(
         ))
         bodyTiming.step("response")
         const finalPlayerData = getPlayerSync(playerId)
+        // Every producer uses bounded SQL deltas; legacy precision-limited
+        // cells remain unchanged without blocking the actual battle reward.
+        assertManaCounterStorageSync(playerId)
         const responseData: Record<string, any> = {
                 "user_info": {
                     "free_mana": finalPlayerData?.freeMana ?? newMana,
@@ -721,9 +751,8 @@ export function settleSingleQuestFinishInTransaction(
                     // amount through the native field-mana slot so the Mana
                     // icon and quantity are visible; user_info.free_mana
                     // remains authoritative and the award is not duplicated.
-                    "reward_mana": displayMode15ManaAsFieldDrop ? 0 : questData.manaReward,
-                    "field_mana": body.add_mana
-                        + (displayMode15ManaAsFieldDrop ? questData.manaReward : 0)
+                    "reward_mana": manaRewards.reward_mana,
+                    "field_mana": manaRewards.field_mana
                 },
                 "old_high_score": questProgress === null ? 0 : questProgress.highScore || 0,
                 "joined_character_id_list": [

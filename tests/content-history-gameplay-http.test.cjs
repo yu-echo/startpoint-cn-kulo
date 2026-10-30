@@ -28,7 +28,12 @@ function fixture() {
         db.prepare('INSERT INTO sessions(token,account_id,expires,type) VALUES(?,?,?,?)').run(key, account.id, '2099-01-01T00:00:00Z', type)
     }
     players.updatePlayerSync({ id: player.id, freeVmoney: 10000, vmoney: 5000 })
-    return { id: player.id, viewer, token }
+    const identities = load('lib/gameplay-request-identity')
+    identities.initializeGameplayRequestIdentitySchemaSync(db)
+    const loginToken = db.transaction(() => identities.issueGameplayLoginTokenSync(db, {
+        accountId: account.id, viewerId: viewer, udid: 'history-gameplay-' + viewer, expiresAt: Date.now() + 86400000,
+    }))()
+    return { id: player.id, viewer, token, loginToken, apiCount: 0 }
 }
 
 function snapshot(player = subject) {
@@ -47,7 +52,8 @@ function control(key, overrides) {
 }
 
 const post = (url, body = {}, player = subject) => app.inject({ method: 'POST', url,
-    payload: { viewer_id: player.viewer, api_count: 1, ...body } })
+    headers: { login_token: player.loginToken },
+    payload: { viewer_id: player.viewer, api_count: body.api_count ?? ++player.apiCount, ...body } })
 function response(result) { assert.equal(result.statusCode, 200, result.body); return result.json() }
 const draw = id => post('/gacha/exec', { gacha_id: id, payment_type: 1, type: 1, number_of_exec: 1 })
 const start = (play, quest = 1002) => post('/single/start', { category: 7, quest_id: quest, party_id: 1, play_id: play,
@@ -144,7 +150,7 @@ test('historical character and equipment exchanges retain exact eligibility, cha
         assert.ok(item)
         gachas.updatePlayerGachaInfoSync(subject.id, { gachaId: id, gachaExchangePoint: 500 })
         const url = `/gacha/exchange_${equipment ? 'equipment' : 'character'}`
-        const payload = { gacha_id: id, [equipment ? 'equipment_id' : 'character_id']: item.id, request_id: randomUUID() }
+        const payload = { gacha_id: id, [equipment ? 'equipment_id' : 'character_id']: item.id, request_id: randomUUID(), api_count: ++subject.apiCount }
         const untouched = snapshot()
         control(`gacha:${id}`, { exchange: false })
         assert.equal((await post(url, payload)).statusCode, 400)
@@ -166,7 +172,7 @@ test('historical character and equipment exchanges retain exact eligibility, cha
         assert.deepEqual(snapshot(), after)
         control(`gacha:${id}`, { exchange: true })
         const rejected = snapshot()
-        assert.equal((await post(url, { ...payload, [equipment ? 'equipment_id' : 'character_id']: 999999999, request_id: randomUUID() })).statusCode, 400)
+        assert.equal((await post(url, { ...payload, [equipment ? 'equipment_id' : 'character_id']: 999999999, request_id: randomUUID(), api_count: ++subject.apiCount })).statusCode, 400)
         assert.deepEqual(snapshot(), rejected)
     }
 })

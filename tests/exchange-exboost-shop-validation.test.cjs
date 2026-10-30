@@ -28,9 +28,11 @@ const {
 const { givePlayerCharacterSync } = load('lib/character')
 const { isMultiSpecialExchangeCharacter } = load('lib/multi-special-exchange')
 const { getDb } = load('data/db')
+const identities = load('lib/gameplay-request-identity')
 const exchangeTable = require('../assets/multi_special_exchange_campaign_character.json')
 
 let nextViewer = 77450100
+const loginTokens = new Map()
 async function createPlayer() {
     const account = insertAccountSync({ appId: 'wf_cn', idpAlias: '', idpCode: 'leiting', idpId: '', status: 'normal' })
     const player = insertDefaultPlayerSync(account.id)
@@ -39,7 +41,12 @@ async function createPlayer() {
     await insertSessionWithToken({
         token: String(viewer), accountId: account.id, expires: new Date(Date.now() + 86_400_000), type: 2,
     })
-    return { playerId: player.id, viewer }
+    const db = getDb()
+    identities.initializeGameplayRequestIdentitySchemaSync(db)
+    loginTokens.set(viewer, db.transaction(() => identities.issueGameplayLoginTokenSync(db, {
+        accountId: account.id, viewerId: viewer, udid: `exchange-validation-${viewer}`, expiresAt: Date.now() + 86_400_000,
+    }))())
+    return { playerId: player.id, viewer, apiCount: 0 }
 }
 
 test('交换券角色白名单、EX 抽取并发扣料与商店购买数量校验', async t => {
@@ -60,7 +67,7 @@ test('交换券角色白名单、EX 抽取并发扣料与商店购买数量校�
     })
 
     const post = (url, payload) => app.inject({
-        method: 'POST', url, headers: { 'content-type': 'application/json' }, payload,
+        method: 'POST', url, headers: { 'content-type': 'application/json', login_token: loginTokens.get(payload.viewer_id) }, payload,
     })
     const resultCode = res => JSON.parse(res.payload).data_headers.result_code
 
@@ -181,7 +188,7 @@ test('交换券角色白名单、EX 抽取并发扣料与商店购买数量校�
                 exchange: { enabled: true, endsAtMs: null, readiness: 'verified', evidence: 'Synthetic count validation fixture' } },
         }, Date.now())
         const buy = number => post('/shop/buy', {
-            viewer_id: ctx.viewer, api_count: 1, shop_type: 4, shop_item_id: 9700118, number,
+            viewer_id: ctx.viewer, api_count: ++ctx.apiCount, shop_type: 4, shop_item_id: 9700118, number,
         })
         for (const number of [1.5, 0, -2, 2 ** 60]) {
             const res = await buy(number)

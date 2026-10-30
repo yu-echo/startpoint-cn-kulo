@@ -27,7 +27,12 @@ function fixture() {
     for (const [token, type] of [[String(viewer), types.VIEWER], [randomUUID(), types.ZAT]]) {
         db.prepare('INSERT INTO sessions(token,account_id,expires,type) VALUES(?,?,?,?)').run(token, account.id, '2099-01-01T00:00:00Z', type)
     }
-    return { id: player.id, viewer }
+    const identities = load('lib/gameplay-request-identity')
+    identities.initializeGameplayRequestIdentitySchemaSync(db)
+    const token = db.transaction(() => identities.issueGameplayLoginTokenSync(db, {
+        accountId: account.id, viewerId: viewer, udid: 'shop-fixture-' + viewer, expiresAt: Date.now() + 86400000,
+    }))()
+    return { token, apiCount: 0, id: player.id, viewer }
 }
 function snapshot(player) {
     return Object.fromEntries(tables.map(({ name, owner }) => [name,
@@ -55,9 +60,11 @@ function funded(id) {
     return { player, item }
 }
 const buy = (player, id, number = 1) => app.inject({ method: 'POST', url: '/shop/buy',
-    payload: { viewer_id: player.viewer, api_count: 1, shop_type: ShopType.EVENT_ITEM, shop_item_id: id, number } })
+    headers: { login_token: player.token },
+    payload: { viewer_id: player.viewer, api_count: ++player.apiCount, shop_type: ShopType.EVENT_ITEM, shop_item_id: id, number } })
 const bulk = (player, ids) => app.inject({ method: 'POST', url: '/shop/bulk_buy',
-    payload: { viewer_id: player.viewer, api_count: 1, shop_type: ShopType.EVENT_ITEM,
+    headers: { login_token: player.token },
+    payload: { viewer_id: player.viewer, api_count: ++player.apiCount, shop_type: ShopType.EVENT_ITEM,
         buy_item_list: Object.fromEntries(ids.map(id => [id, 1])) } })
 const successful = result => assert.equal(result.statusCode, 200, result.body)
 

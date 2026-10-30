@@ -17,6 +17,15 @@ function stubModule(relativePath, exports) {
 
 const db = new Database(":memory:")
 db.exec(`
+    CREATE TABLE accounts (id INTEGER PRIMARY KEY, status TEXT);
+    CREATE TABLE sessions (token TEXT, account_id INTEGER, type INTEGER);
+    CREATE TABLE player_operation_receipts (
+        player_id INTEGER NOT NULL, operation TEXT NOT NULL, request_key TEXT NOT NULL,
+        response_json TEXT NOT NULL, created_at INTEGER NOT NULL,
+        PRIMARY KEY (player_id, operation, request_key)
+    );
+    INSERT INTO accounts VALUES (9, 'normal');
+    INSERT INTO sessions VALUES ('123', 9, 2);
     CREATE TABLE players_active_mission_counters (
         player_id INTEGER PRIMARY KEY,
         total_used_mana_count INTEGER NOT NULL DEFAULT 0,
@@ -45,12 +54,18 @@ db.exec(`
 let failExpWrite = false
 let pendingPooledExp = 0
 stubModule("../src/data/db", { getDb: () => db })
+// This focused fixture uses a minimal schema; queue/clock integration is covered
+// by the full-database economy tests. Keep real SQLite commit/rollback here.
+stubModule("../src/lib/persistence-coordinator", {
+    runPersistenceTransaction: async (_context, operation) => db.transaction(operation)(),
+})
 stubModule("../src/data/domains/account", { getAccountPlayers: () => [] })
 stubModule("../src/data/domains/session", {
     getSession: async viewerId => viewerId === "123" ? { accountId: 9 } : null,
 })
 stubModule("../src/data/activeAccount", { resolvePlayerIdSync: () => 7 })
 stubModule("../src/data/domains/player", {
+    getAccountFromPlayerIdSync: playerId => playerId === 7 ? { id: 9 } : null,
     getPlayerSync(playerId) {
         const row = db.prepare("SELECT * FROM player_state WHERE id = ?").get(playerId)
         return row === undefined ? null : {
@@ -98,6 +113,7 @@ stubModule("../src/utils", {
     generateDataHeaders: values => ({ viewer_id: values.viewer_id, result_code: values.result_code ?? 1 }),
     getServerDate: () => new Date("2026-01-01T00:10:00.000Z"),
     getServerTime: value => Math.floor(value.getTime() / 1000),
+    getTimeOffset: () => 0,
 })
 stubModule("../src/lib/character", {
     givePlayerCharactersExpSync(playerId, characterIds, amount) {
@@ -116,6 +132,12 @@ stubModule("../src/lib/character", {
 
 const counterDomain = require("../src/data/domains/active_mission_counters")
 const expodRoutes = require("../src/routes/api/expod.ts").default
+const identity = require("../src/lib/gameplay-request-identity")
+identity.initializeGameplayRequestIdentitySchemaSync(db)
+const loginToken = db.transaction(() => identity.issueGameplayLoginTokenSync(db, {
+    accountId: 9, viewerId: 123, udid: 'inject-exp-fixture', expiresAt: Date.now() + 86_400_000,
+}))()
+let apiCount = 0
 
 function state() {
     return {
@@ -132,9 +154,9 @@ function setExpPool(value) {
 }
 
 async function injectExp(fastify, exp) {
-    const payload = { viewer_id: 123, character_id: 100001 }
+    const payload = { viewer_id: 123, character_id: 100001, api_count: ++apiCount }
     if (exp !== undefined) payload.exp = exp
-    return fastify.inject({ method: "POST", url: "/inject_exp", payload })
+    return fastify.inject({ method: "POST", url: "/inject_exp", headers: {login_token: loginToken}, payload })
 }
 
 async function main() {

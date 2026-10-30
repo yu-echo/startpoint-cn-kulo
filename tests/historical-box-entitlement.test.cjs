@@ -4,11 +4,14 @@ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'historical-box-'))
 process.env.DATA_DIR=directory;process.env.CN_WRITER_THREAD='0';process.env.GAME_VERBOSE_LOGS='false'
 const Fastify=require('fastify'),{pack,unpack}=require('msgpackr')
 const db=require('../out/data/db').getDb(),players=require('../out/data/domains/player')
+const identities=require('../out/lib/gameplay-request-identity')
+identities.initializeGameplayRequestIdentitySchemaSync(db)
 const boxes=require('../out/data/domains/boxGacha'),ops=require('../out/lib/content-operations')
 const master=require('../out/lib/assets').getBoxGachaSync(28)
 const boxId=Number(Object.keys(master.boxes)[0]),rewardId=Number(Object.keys(master.boxes[boxId])[0])
-let app,playerId,viewer
-const post=(url,extra={})=>app.inject({method:'POST',url,payload:{viewer_id:viewer,...extra}})
+let app,playerId,viewer,loginToken,apiCount=0
+const post=(url,extra={})=>app.inject({method:'POST',url,headers:{login_token:loginToken},
+    payload:{viewer_id:viewer,api_count:extra.api_count??++apiCount,...extra}})
 const data=r=>{assert.equal(r.statusCode,200,r.body);return unpack(Buffer.from(r.body,'base64')).data}
 function snapshot(){return Object.fromEntries(['players_box_gacha','players_box_gacha_drawn_rewards','players_items'].map(table=>[table,db.prepare(`SELECT * FROM ${table} WHERE player_id=? ORDER BY rowid`).all(playerId)]))}
 before(async()=>{
@@ -16,6 +19,8 @@ before(async()=>{
     playerId=players.insertDefaultPlayerSync(account.id).id;viewer=870000000+playerId
     require('../out/data/activeAccount').saveAccountDefaultPlayer(account.id,playerId)
     db.prepare('INSERT INTO sessions(token,account_id,expires,type) VALUES(?,?,?,2)').run(String(viewer),account.id,'2099-01-01T00:00:00Z')
+    loginToken=db.transaction(()=>identities.issueGameplayLoginTokenSync(db,{accountId:account.id,viewerId:viewer,
+        udid:'historical-box-fixture',expiresAt:Date.parse('2099-01-01T00:00:00Z')}))()
     app=Fastify({logger:false})
     app.addHook('onSend',(_request,reply,body,done)=>done(null,String(reply.getHeader('content-type')).startsWith('application/x-msgpack')?pack(body).toString('base64'):body))
     await app.register(require('../out/routes/api/boxGacha').default)

@@ -35,13 +35,17 @@ async function appWithPlayer() {
     saveAccountDefaultPlayer(account.id,player.id)
     const viewer=88000000+player.id
     await insertSessionWithToken({token:String(viewer),accountId:account.id,expires:new Date(Date.now()+86400000),type:2})
+    const identities=require('../out/lib/gameplay-request-identity')
+    identities.initializeGameplayRequestIdentitySchemaSync(db)
+    const loginToken=db.transaction(()=>identities.issueGameplayLoginTokenSync(db,{accountId:account.id,viewerId:viewer,udid:'abyss-ui-'+viewer,expiresAt:Date.now()+86400000}))()
+    let apiCount=0
     const app=require('fastify')({logger:false})
     app.addHook('onSend',(_req,reply,payload,done)=>done(null,
         String(reply.getHeader('content-type')||'').startsWith('application/x-msgpack')&&typeof payload==='object'
             ?JSON.stringify(payload):payload))
     await app.register(require('../out/routes/api/shop').default,{prefix:'/shop'})
     await app.register(require('../out/routes/api/gacha').default,{prefix:'/gacha'})
-    const post=(url,data)=>app.inject({method:'POST',url,payload:{viewer_id:viewer,api_count:1,...data}})
+    const post=(url,data)=>app.inject({method:'POST',url,headers:{login_token:loginToken},payload:{viewer_id:viewer,api_count:++apiCount,...data}})
     return {app,player,post}
 }
 
@@ -51,6 +55,18 @@ test('both shop entrances expose identical product IDs and purchase stock throug
         const normal=assets.getEventShopItemsSync(11,700099)
         assert.ok(Object.keys(normal).length>0)
         assert.strictEqual(assets.getEventShopItemsSync(11,700100),normal)
+        // Both historical entrances share these products; open only the isolated fixture.
+        const operations=require('../out/lib/content-operations'),store=operations.contentOperations(),keys=new Set()
+        const products=operations.contentCatalog.rows.filter(row=>row.key.startsWith('event_item_shop:')&&Object.hasOwn(normal,row.key.split(':')[1]))
+        assert.ok(products.length>0)
+        for(const row of products){
+            assert.ok(row.parentKey);keys.add(row.parentKey);keys.add(row.key)
+        }
+        for(const key of keys)store.update(key,{
+            expectedRevision:store.revision(),catalogDigest:store.digest,reason:'Isolated shared abyss shop regression',
+            actionOverrides:{visible:{enabled:true,endsAtMs:null,readiness:'verified',evidence:'Synthetic dual-entrance fixture'},
+                exchange:{enabled:true,endsAtMs:null,readiness:'verified',evidence:'Synthetic dual-entrance fixture'}},
+        },Date.now())
         const list=async ids=>{
             const r=await post('/shop/get_sales_list',{shop_types:[],boss_coin_shop_category_ids:[],event_list:[{event_type:11,event_ids:ids}]})
             assert.equal(r.statusCode,200,r.payload);return r.json().data.sales_list

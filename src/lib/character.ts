@@ -1,5 +1,5 @@
 import { clientSerializeDate } from "../data/utils";
-import { getPlayerCharacterSync, insertPlayerCharacterSync, updatePlayerCharacterSync } from "../data/domains/character"
+import { getPlayerCharacterSync, getPlayerCharacterEvolutionImageStatesSync, insertPlayerCharacterSync, updatePlayerCharacterSync } from "../data/domains/character"
 import { adjustPlayerExpPoolSync, getPlayerSync } from "../data/domains/player"
 import { givePlayerItemSync } from "../data/domains/item"
 import { getCharacterDataSync } from "./assets";
@@ -92,6 +92,12 @@ const dupeItemRewards: Record<number, Record<Element, number>> = {
     }
 };
 
+/** Shared by character grants and acknowledgements of previously claimed mail. */
+export function getCharacterDuplicateRewardItemId(characterId: number): number | null {
+    const asset = getCharacterDataSync(characterId)
+    return asset ? dupeItemRewards[asset.rarity]?.[asset.element] ?? null : null
+}
+
 /**
  * Rewards a player a character.
  * 
@@ -165,14 +171,15 @@ export function givePlayerCharacterSync(
         }
     } else {
         // otherwise, it was a dupe
-        const dupeRewards = dupeItemRewards[assetData.rarity]
+        const duplicateItemId = getCharacterDuplicateRewardItemId(characterId)
         let returnItem = undefined
-        if (dupeRewards) {
-            const itemId = dupeRewards[assetData.element]
-            const inventoryCount = givePlayerItemSync(playerId, itemId, 1)
+        if (duplicateItemId !== null) {
+            const itemId = duplicateItemId
+            const itemCount = assetData.rarity === 5 ? 3 : 1
+            const inventoryCount = givePlayerItemSync(playerId, itemId, itemCount)
             returnItem = {
                 id: itemId,
-                count: 1,
+                count: itemCount,
                 inventoryCount
             }
         }
@@ -312,10 +319,13 @@ export function getCharactersEvolutionImgLevels(
     playerId: number,
     characterIds: (number | null)[]
 ): (number | null)[] {
+    const states = getPlayerCharacterEvolutionImageStatesSync(
+        playerId, characterIds.filter((id): id is number => id !== null),
+    )
     const evolutionImgLevels: (number | null)[] = []
     for (const id of characterIds) {
         if (id !== null) {
-            const character = getPlayerCharacterSync(playerId, id)
+            const character = states[String(id)]
             const illustrationSettings = character?.illustrationSettings ?? [null]
             const evolutionLevel = character?.evolutionLevel ?? 0
             evolutionImgLevels.push(illustrationSettings[0] === null ? evolutionLevel : illustrationSettings[0])

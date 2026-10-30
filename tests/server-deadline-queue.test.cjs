@@ -14,6 +14,7 @@ process.env.CN_WRITER_THREAD = '0'
 fs.mkdirSync(process.env.GACHA_SEED_DIR)
 
 const { getDb } = require('../out/data/db')
+const identity = require('../out/lib/gameplay-request-identity')
 const players = require('../out/data/domains/player')
 const accounts = require('../out/data/domains/account')
 const items = require('../out/data/domains/item')
@@ -21,6 +22,11 @@ const passState = require('../out/data/domains/pass-card')
 const assets = require('../out/lib/assets')
 const pass = require('../out/lib/pass-card')
 const progress = require('../out/lib/mission/client-progress')
+const operations = require('../out/lib/content-operations')
+const originalDecision = operations.contentDecision
+// This synthetic pass exercises the legacy deadline path, outside the real catalog.
+operations.contentDecision = (type, id, ...args) => type === 'pass_card_event' && Number(id) === 99991
+    ? null : originalDecision(type, id, ...args)
 const coordinator = require('../out/lib/persistence-coordinator')
 const seed = require('../out/lib/seed-validator').default
 const clock = require('../out/utils')
@@ -72,10 +78,15 @@ async function player() {
     require('../out/data/activeAccount').saveAccountDefaultPlayer(account.id, player.id)
     const viewer = 795000000 + player.id
     await require('../out/data/domains/session').insertSessionWithToken({ token: String(viewer), accountId: account.id, expires: new Date('2099-01-01'), type: 2 })
-    return { id: player.id, viewer }
+    identity.initializeGameplayRequestIdentitySchemaSync(getDb())
+    const token = getDb().transaction(() => identity.issueGameplayLoginTokenSync(getDb(), {
+        accountId: account.id, viewerId: viewer, udid: `deadline-${viewer}`, expiresAt: Date.parse('2099-01-01'),
+    }))()
+    return { id: player.id, viewer, token, count: 0 }
 }
 function post(url, player, body) {
-    return { method: 'POST', url, payload: { viewer_id: player.viewer, ...body } }
+    return { method: 'POST', url, headers: {login_token: player.token},
+        payload: { viewer_id: player.viewer, ...body, api_count: ++player.count } }
 }
 function rewardState(id) {
     const player = players.getPlayerSync(id)
@@ -96,6 +107,7 @@ before(async () => {
     await app.ready()
 })
 after(async () => {
+    operations.contentDecision = originalDecision
     Date.now = originalNow
     clock.setServerTimeOffset(originalOffset)
     coordinator.runPersistenceTransaction = originalTransaction

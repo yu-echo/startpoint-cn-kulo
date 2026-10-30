@@ -3,8 +3,10 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { generateDataHeaders } from "../../utils";
 
 import path from "path";
+import { statSync } from "fs";
 import { getZipArchiveMetadata, invalidateZipCache } from "../../lib/zip-summary-cache";
 import { getPatchManifest } from "../../lib/version";
+import { getCnCdnRoot } from "../../lib/cdn-path";
 
 const CN_PORT = process.env.CN_LISTEN_PORT || "8001";
 
@@ -232,6 +234,62 @@ function getEnabledPatchArchiveNames(): Set<string> {
 
 const ACTIVE_PATCH_DIR = path.join(__dirname, "..", "..", "..", "assets", "asset-patch", "active");
 
+class IncompleteAssetUpdateError extends Error {
+    readonly statusCode = 503;
+    readonly code = "ASSET_UPDATE_INCOMPLETE";
+}
+
+/** Check every published file needed by this client before acknowledging a version. */
+function getRequiredPatchArchives(clientVersion: string, targetVersion: string) {
+    const inRange = (version: string) => compareVersion(version, clientVersion) > 0
+        && compareVersion(version, targetVersion) <= 0;
+    const manifest = getPatchManifest() as { patches: Array<{
+        type?: string; enabled?: boolean; version?: string;
+        archive?: unknown; chain?: unknown; archive_size?: number;
+        archive_integrity?: Array<{ name: string; size?: number }>;
+    }> };
+    const required = new Map<string, number | undefined>();
+    for (const patch of manifest.patches) {
+        if (patch.type !== "patch" || patch.enabled !== true) continue;
+        const names = Array.isArray(patch.chain) ? patch.chain : [patch.archive];
+        const requiredVersion = patch.version !== undefined && inRange(patch.version);
+        if (requiredVersion && names.length === 0) {
+            throw new IncompleteAssetUpdateError(`No archives published for version ${patch.version}`);
+        }
+        if (requiredVersion && !names.some(name => typeof name === "string"
+            && parseDiffArchiveName(name)?.to === patch.version)) {
+            throw new IncompleteAssetUpdateError(`No archive reaches published version ${patch.version}`);
+        }
+        for (const name of names) {
+            const key = typeof name === "string" ? parseDiffArchiveName(name) : null;
+            if (!key || typeof name !== "string" || path.basename(name) !== name || name.includes("\\")) {
+                if (requiredVersion || patch.version === undefined) {
+                    throw new IncompleteAssetUpdateError("Invalid published patch archive name");
+                }
+                continue;
+            }
+            if (!inRange(key.to)) continue;
+            const expectedSize = patch.archive_integrity?.find(entry => entry.name === name)?.size
+                ?? (names.length === 1 ? patch.archive_size : undefined);
+            required.set(name, expectedSize);
+        }
+    }
+    return [...required].map(([filename, expectedSize]) => {
+        // Stat each required file now: a cached listing can outlive a partial copy or removal.
+        let stats;
+        try {
+            stats = statSync(path.join(ACTIVE_PATCH_DIR, filename));
+        } catch {
+            throw new IncompleteAssetUpdateError(`Published patch archive unavailable: ${filename}`);
+        }
+        if (!stats.isFile() || stats.size <= 0
+            || (expectedSize !== undefined && stats.size !== expectedSize)) {
+            throw new IncompleteAssetUpdateError(`Published patch archive size invalid: ${filename}`);
+        }
+        return { filename, size: stats.size };
+    });
+}
+
 export interface DiffArchiveKey {
     readonly from: string;
     readonly to: string;
@@ -370,16 +428,9 @@ function buildDiffList(
     }
     
     // Asset patch archives (active patches only)
-    const publishedArchives = getEnabledPatchArchiveNames();
-    try {
-        const published = getAssetArchiveMetadata(ACTIVE_PATCH_DIR)
-            .filter(archive => publishedArchives.has(archive.filename));
-        for (const { archive, key } of sortDiffArchives(published)) {
-            if (!groups.has(key.to)) groups.set(key.to, { original_version: key.from, archive: [] });
-            groups.get(key.to)!.archive.push({ location: joinCdnPath(baseUrl, "asset-patch", "active", archive.filename), size: archive.size, sha256: "" });
-        }
-    } catch (e) {
-        console.error(`[PATCH] buildDiffList failed for active patches:`, (e as Error).message);
+    for (const { archive, key } of sortDiffArchives(getRequiredPatchArchives(clientVersion, targetVersion))) {
+        if (!groups.has(key.to)) groups.set(key.to, { original_version: key.from, archive: [] });
+        groups.get(key.to)!.archive.push({ location: joinCdnPath(baseUrl, "asset-patch", "active", archive.filename), size: archive.size, sha256: "" });
     }
     
     return [...groups.entries()]
@@ -393,8 +444,7 @@ function buildDiffList(
         .map(([version, data]) => ({ original_version: data.original_version, version, archive: data.archive }));
 }
 
-const envCdnDir = process.env.CDN_DIR || ".cdn";
-const cdnDir = path.isAbsolute(envCdnDir) ? path.join(envCdnDir, "cn") : path.join(__dirname, "..", "..", "..", envCdnDir, "cn");
+const cdnDir = getCnCdnRoot();
 
 function sumArchiveSizes(archives: { size: number }[]): number {
     return archives.reduce((total, archive) => total + archive.size, 0);

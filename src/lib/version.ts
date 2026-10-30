@@ -10,8 +10,10 @@ import { existsSync } from "./file-exists";
  *   Update  (resVer<target):  full.version=resVer, full.archives=[], target=max(CDN, patches)
  *   Up-to-date (resVer≥target): full=null, diff=null when no archive task remains
  */
-import { readFileSync, readdirSync, statSync } from "fs";
+import { readFileSync, statSync } from "fs";
 import path from "path";
+import { getCnCdnRoot } from "./cdn-path";
+import { getZipArchiveMetadata, invalidateZipCache } from "./zip-summary-cache";
 
 // CDN full archives are at version 1.4.0
 export const FULL_BASE = "1.4.0";
@@ -30,23 +32,19 @@ export function getEffectiveVersion(): string {
     return cdnVer;
 }
 
-// Detect highest version from CDN diff archive filenames
-let _cdnVersion: string | null = null;
-
+// Share the download catalog's bounded cache and publication invalidation.
 export function detectCDNVersion(): string {
-    if (_cdnVersion) return _cdnVersion;
-    const cdnDir = path.join(__dirname, "..", "..", ".cdn", "cn");
+    const cdnDir = getCnCdnRoot();
     let max = "1.4.0";
     for (const subdir of ["archive-common-diff", "archive-medium-diff", "archive-android-diff"]) {
         const dir = path.join(cdnDir, subdir);
         try {
-            for (const f of readdirSync(dir).filter(f => f.endsWith(".zip"))) {
-                const m = f.match(/pinball-\d+\.\d+\.\d+-(\d+\.\d+\.\d+)-\d+-/);
+            for (const archive of getZipArchiveMetadata(dir)) {
+                const m = archive.filename.match(/pinball-\d+\.\d+\.\d+-(\d+\.\d+\.\d+)-\d+-/);
                 if (m && compareVersion(m[1], max) > 0) max = m[1];
             }
         } catch (_) { /* ignore */ }
     }
-    _cdnVersion = max;
     return max;
 }
 
@@ -94,6 +92,7 @@ export function getPatchManifest(): { cdn_version: string; patches: PatchMeta[] 
 export function reloadPatchManifest(): void {
     _manifestCache = null;
     _manifestMtimeMs = null;
+    invalidateZipCache();
 }
 
 // Max enabled patch version whose depends_on <= resVer

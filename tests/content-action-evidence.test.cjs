@@ -34,12 +34,17 @@ test('actual shop route family payments, stock denial, shared stock and policy f
  const account=read('data/domains/account').insertAccountSync({appId:'wf_cn',idpAlias:'',idpCode:'offline-action-proof',idpId:'fixture',status:'normal'})
  const player=read('data/domains/player').insertDefaultPlayerSync(account.id);read('data/activeAccount').saveAccountDefaultPlayer(account.id,player.id)
  const viewer=879000000+player.id;db.prepare('INSERT INTO sessions(token,account_id,expires,type) VALUES(?,?,?,2)').run(String(viewer),account.id,'2099-01-01T00:00:00Z')
+ const identities=read('lib/gameplay-request-identity')
+ identities.initializeGameplayRequestIdentitySchemaSync(db)
+ const loginToken=db.transaction(()=>identities.issueGameplayLoginTokenSync(db,{
+  accountId:account.id,viewerId:viewer,udid:'action-evidence-'+viewer,expiresAt:Date.now()+86400000,
+ }))()
  await app.register(read('routes/api/shop').default,{prefix:'/shop'})
  const report=JSON.parse(fs.readFileSync(path.join(task,'action-closure.json'),'utf8')),assets=read('lib/assets'),items=read('data/domains/item'),players=read('data/domains/player'),purchases=read('data/domains/shopPurchase')
  const operations=read('lib/content-operations'),store=operations.contentOperations()
  for(const row of report.products)assert.equal(store.contentDigests.get(row.key),row.definitionCAS.contentDigest,row.key+' definition CAS equals authoritative store formula')
  let requests=0
- const buy=(shopType,id,number=1)=>{requests++;return app.inject({method:'POST',url:'/shop/buy',payload:{viewer_id:viewer,shop_type:shopType,shop_item_id:id,number,api_count:1}})}
+ const buy=(shopType,id,number=1)=>{requests++;return app.inject({method:'POST',url:'/shop/buy',headers:{login_token:loginToken},payload:{viewer_id:viewer,shop_type:shopType,shop_item_id:id,number,api_count:requests}})}
  const state=()=>({player:players.getPlayerSync(player.id),items:db.prepare('SELECT * FROM players_items WHERE player_id=? ORDER BY id').all(player.id),equipment:db.prepare('SELECT * FROM players_equipment WHERE player_id=? ORDER BY id').all(player.id),counts:db.prepare('SELECT * FROM players_shop_purchases WHERE player_id=? ORDER BY shop_item_id').all(player.id)})
  const putCurrency=()=>{const value=players.getPlayerSync(player.id);players.updatePlayerSync({...value,freeMana:10000000,paidMana:100,freeVmoney:10000000,vmoney:100,bondToken:100000})}
  const cases=[[8,100001],[9,170000],[7,990099001],[4,9700201]]

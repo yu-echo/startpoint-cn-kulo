@@ -22,6 +22,12 @@ function loadRoutes(patches, warnings = []) {
     const filename = process.env.STARPOINT_ASSET_ROUTE_FILE || path.resolve(__dirname, '../out/routes/cn/asset.js');
     const output = { exports: {} };
     const localRequire = name => {
+        if (name === 'fs') return { statSync: file => {
+            const entry = files.find(item => item.filename === path.basename(file));
+            if (!entry) throw new Error('missing fixture');
+            return {size: entry.size, isFile: () => true};
+        }};
+        if (name.endsWith('/cdn-path')) return {getCnCdnRoot: () => path.resolve('fixture-cdn/cn')};
         if (name.endsWith('/file-exists')) return { existsSync: () => true };
         if (name.endsWith('/utils')) return { generateDataHeaders: value => value || {} };
         if (name.endsWith('/zip-summary-cache')) return {
