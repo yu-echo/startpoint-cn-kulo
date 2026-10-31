@@ -34,6 +34,12 @@ import {
     PlayerSaveExportError,
 } from "../../lib/player-save-export";
 import { hijackUnavailableReply } from "../../lib/http-reply";
+import {
+    applyPlayerCharacterMax,
+    describePlayerCharacterProgress,
+    parseCharacterMaxScopes,
+    planPlayerCharacterMax,
+} from "../../lib/admin-character-max";
 import { runPersistenceTransaction, runPersistenceTransactionSync } from "../../lib/persistence-coordinator";
 import { ServerClosingError } from "../../lib/shutdown-state";
 import { isPersistenceAdmissionError } from "../../lib/persistence-admission";
@@ -119,18 +125,22 @@ const routes = async (fastify: FastifyInstance) => {
             expPooledTime: player.expPooledTime.toISOString(),
             timeOffset: player.timeOffset ?? null,
         }
-        if (includes("characters")) result.characters = Object.entries(getPlayerCharactersSync(playerId))
-            .map(([code, char]) => ({
-                code: Number(code),
-                joinTime: char.joinTime.toISOString(),
-                entryCount: char.entryCount,
-                evolutionLevel: char.evolutionLevel,
-                overLimitStep: char.overLimitStep,
-                exp: char.exp,
-                stack: char.stack,
-                manaBoardIndex: char.manaBoardIndex,
-            }))
-            .sort((a, b) => new Date(b.joinTime).getTime() - new Date(a.joinTime).getTime())
+        if (includes("characters")) {
+            const progress = describePlayerCharacterProgress(playerId)
+            result.characters = Object.entries(getPlayerCharactersSync(playerId))
+                .map(([code, char]) => ({
+                    code: Number(code),
+                    joinTime: char.joinTime.toISOString(),
+                    entryCount: char.entryCount,
+                    evolutionLevel: char.evolutionLevel,
+                    overLimitStep: char.overLimitStep,
+                    exp: char.exp,
+                    stack: char.stack,
+                    manaBoardIndex: char.manaBoardIndex,
+                    ...(progress[Number(code)] ?? {}),
+                }))
+                .sort((a, b) => new Date(b.joinTime).getTime() - new Date(a.joinTime).getTime())
+        }
 
         if (includes("items")) result.items = Object.entries(getPlayerItemsSync(playerId)).map(([id, count]) => ({ id: Number(id), count }))
 
@@ -463,6 +473,68 @@ const routes = async (fastify: FastifyInstance) => {
             return reply.status(500).send({ error: e.message })
         }
     })
+
+    // ── 存档内容管理器：角色养成一键拉满 ──
+    // 作用域：level（等级+超限）/ board（玛纳板全解锁）/ awake（觉醒）/ evolution（进化）
+    // dryRun=true 只算不写，前端先用它给用户看「会影响多少」。
+    const characterMaxHandler = (single: boolean) => async (request: FastifyRequest, reply: FastifyReply) => {
+        const params = request.params as { id: string; code?: string }
+        const playerId = Number(params.id)
+        if (isNaN(playerId)) return reply.status(400).send({ error: "无效的玩家 ID" })
+        if (!getPlayerSync(playerId)) return reply.status(404).send({ error: "未找到该玩家存档" })
+
+        const body = (request.body as Record<string, unknown> | null) ?? {}
+        const parsed = parseCharacterMaxScopes(body.scopes)
+        if ("error" in parsed) return reply.status(400).send({ error: parsed.error })
+        const { scopes } = parsed
+
+        let characterIds: number[] | null = null
+        if (single) {
+            const code = Number(params.code)
+            if (!Number.isSafeInteger(code) || code <= 0) return reply.status(400).send({ error: "无效的角色编号" })
+            characterIds = [code]
+        } else if (body.characterIds !== undefined) {
+            if (!Array.isArray(body.characterIds) || body.characterIds.some(id => !Number.isSafeInteger(Number(id)) || Number(id) <= 0))
+                return reply.status(400).send({ error: "characterIds 必须是正整数数组" })
+            characterIds = body.characterIds.map(Number)
+        }
+
+        const dryRun = body.dryRun === true
+        try {
+            const { changes, totals, skipped } = planPlayerCharacterMax(playerId, { scopes, characterIds })
+            const scopesList = [...scopes]
+            if (dryRun || changes.length === 0) {
+                return reply.status(200).send({
+                    ok: true, dryRun: true, playerId, scopes: scopesList,
+                    affected: totals.characters, skipped, totals,
+                    sample: changes.slice(0, 20).map(change => ({
+                        characterId: change.characterId,
+                        rarity: change.rarity,
+                        exp: change.exp,
+                        overLimitStep: change.overLimitStep,
+                        manaBoardIndex: change.manaBoardIndex,
+                        evolutionLevel: change.evolutionLevel,
+                        nodeInserts: change.insertNodeIds.length,
+                        awakeNodes: change.awakeNodeIds.length,
+                    })),
+                })
+            }
+
+            const result = applyPlayerCharacterMax(playerId, changes)
+            return reply.status(200).send({
+                ok: true, dryRun: false, playerId, scopes: scopesList,
+                affected: result.totals.characters, skipped,
+                totals: result.totals,
+                bondRepaired: result.bondRepaired,
+                evolutionRepaired: result.evolutionRepaired,
+            })
+        } catch (e: any) {
+            return reply.status(500).send({ error: `一键拉满失败：${e?.message ?? e}` })
+        }
+    }
+
+    fastify.post("/:id/characters/max", characterMaxHandler(false))
+    fastify.post("/:id/character/:code/max", characterMaxHandler(true))
 
     // Add/set item
     fastify.post("/:id/item", async (request: FastifyRequest, reply: FastifyReply) => {

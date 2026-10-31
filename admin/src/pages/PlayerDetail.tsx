@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Alert, Card, Descriptions, Table, Button, Space, InputNumber, Popconfirm, message, Tag, Tabs, Spin, Typography, Collapse, Switch, DatePicker, Input, Upload, Modal } from "antd"
-import { SaveOutlined, DeleteOutlined, PlusOutlined, DownloadOutlined, UploadOutlined, UndoOutlined, SearchOutlined } from "@ant-design/icons"
+import { SaveOutlined, DeleteOutlined, PlusOutlined, DownloadOutlined, UploadOutlined, UndoOutlined, SearchOutlined, ThunderboltOutlined } from "@ant-design/icons"
 import { useParams } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import dayjs from "dayjs"
@@ -24,7 +24,41 @@ interface PlayerInfo {
     lastLoginTime: string; staminaHealTime: string; expPooledTime: string; timeOffset: number | null
 }
 
-interface CharRow { code: number; joinTime: string; entryCount: number; evolutionLevel: number; overLimitStep: number; exp: number; stack: number; manaBoardIndex: number }
+interface CharRow {
+    code: number; joinTime: string; entryCount: number; evolutionLevel: number
+    overLimitStep: number; exp: number; stack: number; manaBoardIndex: number
+    /** 服务端补的养成进度视图（describePlayerCharacterProgress） */
+    rarity?: number
+    expCap?: number | null
+    maxOverLimit?: number | null
+    boardCount?: number
+    nodeTotal?: number
+    nodeOwned?: number
+    awakeOwned?: number
+    targetEvolution?: number
+}
+
+interface CharacterMaxTotals {
+    characters: number
+    levelChanges: number
+    boardChanges: number
+    nodeInserts: number
+    awakeNodeChanges: number
+    awakeUnlocks: number
+    evolutionChanges: number
+}
+
+interface CharacterMaxRun {
+    ok: boolean
+    dryRun: boolean
+    playerId: number
+    scopes: string[]
+    affected: number
+    skipped: number
+    totals: CharacterMaxTotals
+    bondRepaired?: number
+    evolutionRepaired?: number
+}
 interface ItemRow { id: number; count: number }
 interface EquipRow { id: number; level: number; enhancementLevel: number }
 interface QuestRow { section: number; questId: number; finished: boolean; highScore: number | null; clearRank: number | null; bestElapsedTimeMs: number | null }
@@ -100,6 +134,7 @@ export function PlayerDetail() {
     const qc = useQueryClient()
     const [editValues, setEditValues] = useState<Record<string, any>>({})
     const [addCharCode, setAddCharCode] = useState<number | undefined>()
+    const [maxPreview, setMaxPreview] = useState<CharacterMaxRun | null>(null)
     const [addItemId, setAddItemId] = useState<number | undefined>()
     const [addItemCount, setAddItemCount] = useState<number | null>(1)
     const [searchChars, setSearchChars] = useState("")
@@ -161,6 +196,32 @@ export function PlayerDetail() {
     const delChar = useMailPlayerMutation({
         mutationFn: (code: number) => apiDelete(`/api/player/${pid}/character/${code}`),
         onSuccess: () => { message.success("角色已删除"); refresh(["player", "characters"]) },
+    })
+
+    // 一键拉满：等级 + 超限 + 玛纳板 + 觉醒 + 进化
+    const CHARACTER_MAX_SCOPES = ["level", "board", "awake", "evolution"]
+    const maxAllPreview = useMailPlayerMutation<CharacterMaxRun, void>({
+        mutationFn: () => apiPost(`/api/player/${pid}/characters/max`, { scopes: CHARACTER_MAX_SCOPES, dryRun: true }) as Promise<CharacterMaxRun>,
+        onSuccess: data => {
+            if (data.affected === 0) { void message.info("所有角色都已经满了，没有需要改动的内容"); return }
+            setMaxPreview(data)
+        },
+    })
+    const maxAll = useMailPlayerMutation<CharacterMaxRun, void>({
+        mutationFn: () => apiPost(`/api/player/${pid}/characters/max`, { scopes: CHARACTER_MAX_SCOPES }) as Promise<CharacterMaxRun>,
+        onSuccess: data => {
+            setMaxPreview(null)
+            void message.success(`已拉满 ${data.affected} 个角色：满级 ${data.totals.levelChanges}，满板 ${data.totals.boardChanges}，觉醒 ${data.totals.awakeNodeChanges} 个节点，进化 ${data.totals.evolutionChanges}`)
+            refresh(["player", "characters"])
+        },
+    })
+    const maxChar = useMailPlayerMutation<CharacterMaxRun, number>({
+        mutationFn: code => apiPost(`/api/player/${pid}/character/${code}/max`, { scopes: CHARACTER_MAX_SCOPES }) as Promise<CharacterMaxRun>,
+        onSuccess: (data, code) => {
+            if (data.affected === 0) { void message.info(`角色 ${code} 已经满了`); return }
+            void message.success(`角色 ${code} 已拉满`)
+            refresh(["player", "characters"])
+        },
     })
 
     const addItem = useMailPlayerMutation({
@@ -406,7 +467,39 @@ export function PlayerDetail() {
                             </Button>
                         </Popconfirm>
                         {searchBox(searchChars, setSearchChars)}
+                        <Button
+                            icon={<ThunderboltOutlined />}
+                            loading={maxAllPreview.isPending}
+                            onClick={() => maxAllPreview.mutate()}
+                        >
+                            全部拉满
+                        </Button>
                     </div>
+                    <Modal
+                        open={maxPreview !== null}
+                        title="确认把所有角色的养成拉满？"
+                        okText={maxPreview ? `确认改动 ${maxPreview.affected} 个角色` : "确认"}
+                        cancelText="取消"
+                        confirmLoading={maxAll.isPending}
+                        onCancel={() => setMaxPreview(null)}
+                        onOk={() => maxAll.mutate()}
+                    >
+                        {maxPreview && (
+                            <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                                <Text>目标存档：{player.name}（ID {maxPreview.playerId}）</Text>
+                                <Text type="secondary">四项同时生效：等级+超限、玛纳板全解锁、觉醒、进化。</Text>
+                                <Descriptions size="small" column={1} bordered>
+                                    <Descriptions.Item label="角色数">{maxPreview.affected} 个（跳过已满 {maxPreview.skipped} 个）</Descriptions.Item>
+                                    <Descriptions.Item label="等级/超限">{maxPreview.totals.levelChanges} 个</Descriptions.Item>
+                                    <Descriptions.Item label="玛纳板推进">{maxPreview.totals.boardChanges} 个</Descriptions.Item>
+                                    <Descriptions.Item label="新解锁节点">{maxPreview.totals.nodeInserts} 行</Descriptions.Item>
+                                    <Descriptions.Item label="觉醒节点">{maxPreview.totals.awakeNodeChanges} 个</Descriptions.Item>
+                                    <Descriptions.Item label="进化等级">{maxPreview.totals.evolutionChanges} 个</Descriptions.Item>
+                                </Descriptions>
+                                <Alert type="warning" showIcon message="改完要让玩家重新登录才看得到；此操作只抬不降，可重复执行。" />
+                            </Space>
+                        )}
+                    </Modal>
                     {addCharCode != null && charProblem && <Text type="danger" role="alert">{charProblem}</Text>}
                     <Table rowKey="code" dataSource={fChars} size="small" pagination={{ pageSize: 50 }}
                         scroll={{ x: "max-content" }}
@@ -415,15 +508,69 @@ export function PlayerDetail() {
                             { title: "称号", render: (_, r: CharRow) => lookups?.characters[r.code]?.title ?? "-", responsive: ["lg"] as any },
                             { title: "编号", dataIndex: "code", width: 80, render: value => <Text type="secondary">{value}</Text> },
                             { title: "稀有度", render: (_, r: CharRow) => lookups?.characters[r.code] ? `${lookups.characters[r.code].rarity} ${lookups.characters[r.code].element}` : "-", width: 100 },
+                            {
+                                title: "等级", width: 130,
+                                render: (_, r: CharRow) => {
+                                    if (r.expCap == null) return <Text type="secondary">-</Text>
+                                    const full = r.exp >= r.expCap
+                                    return <Space size={4}>
+                                        <Text type={full ? "success" : undefined}>{`${r.exp}/${r.expCap}`}</Text>
+                                        {full && <Tag color="green">满</Tag>}
+                                    </Space>
+                                },
+                            },
+                            {
+                                title: "超限", width: 80,
+                                render: (_, r: CharRow) => r.maxOverLimit == null ? "-"
+                                    : <Text type={r.overLimitStep >= r.maxOverLimit ? "success" : undefined}>{`${r.overLimitStep}/${r.maxOverLimit}`}</Text>,
+                            },
+                            {
+                                title: "玛纳板", width: 150,
+                                render: (_, r: CharRow) => {
+                                    if (r.boardCount == null || r.nodeTotal == null) return "-"
+                                    const boardFull = (r.nodeOwned ?? 0) >= r.nodeTotal
+                                    return <Space size={4}>
+                                        <Text type={boardFull ? "success" : undefined}>{`${r.nodeOwned ?? 0}/${r.nodeTotal}`}</Text>
+                                        <Text type="secondary">{`板${r.manaBoardIndex}/${r.boardCount}`}</Text>
+                                    </Space>
+                                },
+                            },
+                            {
+                                title: "觉醒", width: 90,
+                                render: (_, r: CharRow) => {
+                                    const awake = r.awakeOwned ?? 0
+                                    return awake > 0 ? <Tag color="gold">{awake} 节点</Tag> : <Text type="secondary">未觉醒</Text>
+                                },
+                            },
+                            {
+                                title: "进化", width: 80,
+                                render: (_, r: CharRow) => {
+                                    const target = r.targetEvolution ?? 2
+                                    return <Text type={r.evolutionLevel >= target ? "success" : undefined}>{`${r.evolutionLevel}/${target}`}</Text>
+                                },
+                            },
                             { title: "入手时间", dataIndex: "joinTime", render: (t: string) => t.replace("T", " ").substring(0, 19), responsive: ["md"] as any },
                             {
-                                title: "", width: 60,
-                                render: (_, r: CharRow) => r.code === 1 ? <Tag>Alk</Tag> : (
-                                    <Popconfirm title={`从 ${player.name} 删除“${lookups.characters[r.code]?.name ?? "此角色"}”？`}
-                                        description={`目标：${playerTarget}；角色编号 ${r.code}。编队中的相关角色引用也会清除。`}
-                                        onConfirm={() => delChar.mutate(r.code)} okText="确认删除" cancelText="取消" okButtonProps={{ danger: true }}>
-                                        <Button size="small" danger loading={delChar.isPending && delChar.variables === r.code} disabled={delChar.isPending} icon={<DeleteOutlined />} />
-                                    </Popconfirm>
+                                title: "", width: 130,
+                                render: (_, r: CharRow) => (
+                                    <Space size={4}>
+                                        <Button
+                                            size="small"
+                                            icon={<ThunderboltOutlined />}
+                                            loading={maxChar.isPending && maxChar.variables === r.code}
+                                            disabled={maxChar.isPending}
+                                            onClick={() => maxChar.mutate(r.code)}
+                                        >
+                                            拉满
+                                        </Button>
+                                        {r.code === 1 ? <Tag>Alk</Tag> : (
+                                            <Popconfirm title={`从 ${player.name} 删除“${lookups.characters[r.code]?.name ?? "此角色"}”？`}
+                                                description={`目标：${playerTarget}；角色编号 ${r.code}。编队中的相关角色引用也会清除。`}
+                                                onConfirm={() => delChar.mutate(r.code)} okText="确认删除" cancelText="取消" okButtonProps={{ danger: true }}>
+                                                <Button size="small" danger loading={delChar.isPending && delChar.variables === r.code} disabled={delChar.isPending} icon={<DeleteOutlined />} />
+                                            </Popconfirm>
+                                        )}
+                                    </Space>
                                 ),
                             },
                         ]}
