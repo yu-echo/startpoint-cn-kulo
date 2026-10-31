@@ -82,3 +82,21 @@ export function upsertPlayerCharacterAwakeUnlockSync(
 
     return result.changes > 0
 }
+
+/**
+ * Removes every awake unlock of one character.
+ *
+ * Unlocks are normally only ever granted (mission rewards), so this exists for
+ * repair paths that have to take back state a character is not entitled to.
+ */
+export function deletePlayerCharacterAwakeUnlockSync(
+    playerId: number,
+    characterId: number
+): number {
+    const result = cachedStatement(getDb(), `
+        DELETE FROM players_character_awake_unlocks
+        WHERE player_id = ? AND character_id = ?
+    `).run(playerId, characterId)
+
+    return result.changes
+}

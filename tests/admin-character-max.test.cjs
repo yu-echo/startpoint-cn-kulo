@@ -36,6 +36,8 @@ test.after(async () => { await app.close(); db.close() })
 // 板 1 觉醒后板 2 会跟着免费觉醒（板 2 必须全部学会）。
 const EXTENSION_ID = 111183
 const PLAIN_ID = 1
+// 没有觉醒任务（任务分类 9）的角色：玛纳板可以学满，但不能觉醒
+const NO_AWAKE_ID = 111002
 
 function player() {
     const account = insertAccountSync({ appId: "wf_cn", idpAlias: "", idpCode: "fixture", idpId: "", status: "normal" })
@@ -228,6 +230,70 @@ test("单角色入口：只影响指定角色", () => {
 
     // 再跑一次就没有可改的了
     assert.equal(maxModule.maxSingleCharacterSync(p.id, EXTENSION_ID, scopes).applied, false)
+})
+
+// ── 觉醒门槛：只有配了觉醒任务的角色可以觉醒 ──────────────
+test("没有觉醒内容的角色：不写 wake/解锁，进化封顶 1", () => {
+    const p = player()
+    addFreshCharacter(p.id, NO_AWAKE_ID)
+    assert.ok(!maxModule.getAwakeCharacterIdSet().has(NO_AWAKE_ID), `${NO_AWAKE_ID} 不该有觉醒任务`)
+
+    const plan = maxModule.planPlayerCharacterMax(p.id, { scopes: new Set(maxModule.CHARACTER_MAX_SCOPES) })
+    const target = plan.changes.find(change => change.characterId === NO_AWAKE_ID)
+    assert.ok(target, "等级/板这些还是该拉满的")
+    assert.equal(target.awakeNodeIds.length, 0, "没有觉醒内容就不能觉醒节点")
+    assert.equal(target.awakeUnlock, false, "也不能写觉醒解锁行")
+    assert.equal(target.evolutionLevel, 1, "进化只能到板满的 1，不能到觉醒的 2")
+    assert.equal(target.manaBoardIndex, 2, "板索引照常推满")
+
+    maxModule.applyPlayerCharacterMax(p.id, plan.changes)
+    assert.ok(nodeRows(p.id, NO_AWAKE_ID).every(node => node.awake_level === 0))
+    assert.equal(awakeUnlockOf(p.id, NO_AWAKE_ID), undefined)
+    assert.equal(charRow(p.id, NO_AWAKE_ID).evolution_level, 1)
+
+    const progress = maxModule.describePlayerCharacterProgress(p.id)[NO_AWAKE_ID]
+    assert.equal(progress.awakeOwned, 0)
+    assert.equal(progress.targetEvolution, 1, "进度视图的进化目标也要跟着降")
+})
+
+test("撤回越权觉醒：节点归零、解锁删除、进化回 1，且有觉醒内容的角色不受影响", () => {
+    const p = player()
+    addFreshCharacter(p.id, NO_AWAKE_ID)
+    addFreshCharacter(p.id, EXTENSION_ID)
+    // 先按正常口径拉满（扩展角色是合法的觉醒，NO_AWAKE_ID 不是）
+    const scopes = new Set(maxModule.CHARACTER_MAX_SCOPES)
+    maxModule.applyPlayerCharacterMax(p.id, maxModule.planPlayerCharacterMax(p.id, { scopes }).changes)
+
+    // 复现历史误写：给没有觉醒内容的角色也打上觉醒状态
+    db.prepare("UPDATE players_characters_mana_nodes SET awake_level = 1 WHERE player_id = ? AND character_id = ?")
+        .run(p.id, NO_AWAKE_ID)
+    db.prepare("UPDATE players_characters SET evolution_level = 2 WHERE player_id = ? AND id = ?")
+        .run(p.id, NO_AWAKE_ID)
+    db.prepare("INSERT OR REPLACE INTO players_character_awake_unlocks (player_id, character_id, board_index, awake_level) VALUES (?, ?, 1, 1)")
+        .run(p.id, NO_AWAKE_ID)
+    const dirtyNodes = nodeRows(p.id, NO_AWAKE_ID).length
+    assert.ok(dirtyNodes > 0)
+    assert.ok(nodeRows(p.id, NO_AWAKE_ID).every(node => node.awake_level === 1))
+
+    const repaired = maxModule.revokeUnauthorizedAwakeStateSync(p.id)
+    assert.equal(repaired.characters, 1)
+    assert.equal(repaired.nodes, dirtyNodes)
+    assert.equal(repaired.unlocks, 1)
+    assert.equal(repaired.evolutionLevels, 1)
+
+    assert.ok(nodeRows(p.id, NO_AWAKE_ID).every(node => node.awake_level === 0))
+    assert.equal(awakeUnlockOf(p.id, NO_AWAKE_ID), undefined)
+    assert.equal(charRow(p.id, NO_AWAKE_ID).evolution_level, 1)
+    assert.equal(charRow(p.id, NO_AWAKE_ID).mana_board_index, 2, "板本身照常是满的")
+
+    // 合法觉醒的扩展角色一点没动
+    assert.equal(awakeUnlockOf(p.id, EXTENSION_ID).awake_level, 1)
+    assert.ok(nodeRows(p.id, EXTENSION_ID).every(node => node.awake_level === 1))
+    assert.equal(charRow(p.id, EXTENSION_ID).evolution_level, 2)
+
+    // 幂等：再撤一次没有可改的
+    assert.deepEqual(maxModule.revokeUnauthorizedAwakeStateSync(p.id),
+        { characters: 0, nodes: 0, unlocks: 0, evolutionLevels: 0 })
 })
 
 // ── 进度视图 ────────────────────────────────────────────────

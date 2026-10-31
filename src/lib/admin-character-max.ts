@@ -21,6 +21,8 @@ import { deriveAwakeEvolutionLevel } from "./character-awake-evolution"
 import { collectLinkedManaNodeAwakeUpdates } from "./character-awake-extension"
 import { getCharacterExpCap, getCharacterMaxOverLimit } from "./character-overlimit"
 import { reconcilePlayerManaBoardCompletionSync } from "./character-helpers"
+import { getCharacterIdFromMission } from "./mission/character-queries"
+import { getMissionIdsByCategory } from "./mission/stages"
 import {
     getPlayerCharactersManaNodeAwakeLevelsSync,
     getPlayerCharactersManaNodesSync,
@@ -31,6 +33,7 @@ import {
 } from "../data/domains/character"
 import {
     getPlayerCharacterAwakeUnlocksSync,
+    deletePlayerCharacterAwakeUnlockSync,
     upsertPlayerCharacterAwakeUnlockSync,
 } from "../data/domains/character_awake"
 import { runPersistenceTransactionSync } from "./persistence-coordinator"
@@ -47,6 +50,21 @@ export const MAX_MANA_NODE_AWAKE_LEVEL = 1
 
 export const CHARACTER_MAX_SCOPES = ["level", "board", "awake", "evolution"] as const
 export type CharacterMaxScope = typeof CHARACTER_MAX_SCOPES[number]
+
+/**
+ * 配置了觉醒任务（任务分类 9）的角色集合 —— 只有这些角色的玛纳板可以觉醒。
+ *
+ * 这是硬约束，不是优化：`players_character_awake_unlocks` 的正规来源是
+ * reconcileAwakeUnlocks 按觉醒任务奖励写的，没有觉醒任务的角色在客户端里
+ * 也没有觉醒页数据。给它们写 awake_level / 解锁行会让客户端在角色界面
+ * 去查一份不存在的觉醒配置，弹「资源损坏 C8601」。
+ *
+ * 参照：线上另一个正常存档（321 角色）只有 1 个角色有觉醒数据，且那个角色
+ * 就在这 47 个之内。
+ */
+export function getAwakeCharacterIdSet(): Set<number> {
+    return new Set(getMissionIdsByCategory(9).map(id => Number(getCharacterIdFromMission(id))))
+}
 
 export interface CharacterMaxChange {
     characterId: number
@@ -117,6 +135,7 @@ export function planPlayerCharacterMax(
     const learnedNodes = getPlayerCharactersManaNodesSync(playerId)
     const awakeLevels = getPlayerCharactersManaNodeAwakeLevelsSync(playerId)
     const awakeUnlocks = getPlayerCharacterAwakeUnlocksSync(playerId)
+    const awakeCharacters = scopes.has("awake") ? getAwakeCharacterIdSet() : null
     const wanted = options.characterIds ? new Set(options.characterIds.map(Number)) : null
 
     const changes: CharacterMaxChange[] = []
@@ -165,9 +184,12 @@ export function planPlayerCharacterMax(
         // 扩展角色（character_awake_extension.json 里配了 linked_mana_node_slots 的 9 个）
         // 的联动板另算：只有该板节点全部学会才会跟着免费觉醒，
         // 口径和 collectLinkedManaNodeAwakeUpdates 一致。
+        //
+        // canAwake 是硬门：没有觉醒任务的角色一律不动觉醒状态，见 getAwakeCharacterIdSet。
+        const canAwake = awakeCharacters !== null && awakeCharacters.has(characterId)
         const awakeNodeIds: number[] = []
         let awakeUnlock = false
-        if (scopes.has("awake") && board1.length > 0) {
+        if (canAwake && board1.length > 0) {
             for (const nodeId of board1) {
                 if (!learned.has(nodeId) && !insertNodeIds.includes(nodeId)) insertNodeIds.push(nodeId)
             }
@@ -189,14 +211,17 @@ export function planPlayerCharacterMax(
         }
 
         // --- evolution ---
+        // 进化等级跟着觉醒走：觉醒 1 级 → 进化 2。没有觉醒内容的角色上限是 1
+        // （板 1 学满时上游 computeBondTokenAndEvolution / reconcile 就是这么给的）。
         let evolutionLevel: number | null = null
         if (scopes.has("evolution")) {
+            const ceiling = awakeCharacters !== null && awakeCharacters.has(characterId) ? 2 : 1
             const board1Nodes = getCharacterManaNodesSync(characterId, 1) ?? {}
             const intendedAwake = new Map<number, number>()
-            if (scopes.has("awake")) for (const nodeId of board1) intendedAwake.set(nodeId, MAX_MANA_NODE_AWAKE_LEVEL)
+            if (canAwake) for (const nodeId of board1) intendedAwake.set(nodeId, MAX_MANA_NODE_AWAKE_LEVEL)
             const derived = deriveAwakeEvolutionLevel(character.evolutionLevel, board1Nodes, intendedAwake)
             const floor = boardCount > 0 && character.manaBoardIndex >= 1 ? 1 : character.evolutionLevel
-            const target = Math.max(character.evolutionLevel, derived, floor)
+            const target = Math.min(ceiling, Math.max(character.evolutionLevel, derived, floor))
             if (target > character.evolutionLevel) evolutionLevel = target
         }
 
@@ -291,6 +316,57 @@ export function maxSingleCharacterSync(
     return { applied: true, plan: changes[0], totals }
 }
 
+/**
+ * 撤回「没有觉醒内容却被觉醒」的角色状态。
+ *
+ * 只针对 getAwakeCharacterIdSet 之外的已拥有角色：节点 awake_level 归零、
+ * 删掉觉醒解锁行、进化等级压回 1（板 1 学满时上游给的正常值）。
+ * 幂等：已经干净的角色不会产生写入。
+ */
+export function revokeUnauthorizedAwakeStateSync(
+    playerId: number,
+): { characters: number, nodes: number, unlocks: number, evolutionLevels: number } {
+    const awakeCharacters = getAwakeCharacterIdSet()
+    const characters = getPlayerCharactersSync(playerId)
+    const awakeLevels = getPlayerCharactersManaNodeAwakeLevelsSync(playerId)
+    const unlocks = getPlayerCharacterAwakeUnlocksSync(playerId)
+
+    const targets = Object.entries(characters)
+        .filter(([idText]) => !awakeCharacters.has(Number(idText)))
+        .map(([idText, character]) => ({
+            characterId: Number(idText),
+            awaken: Object.entries(awakeLevels[idText] ?? {})
+                .filter(([, level]) => level > 0).map(([nodeId]) => Number(nodeId)),
+            unlocked: unlocks.has(idText),
+            evolutionLevel: character.evolutionLevel,
+        }))
+        .filter(target => target.awaken.length > 0 || target.unlocked || target.evolutionLevel > 1)
+    if (targets.length === 0) return { characters: 0, nodes: 0, unlocks: 0, evolutionLevels: 0 }
+
+    const result = { characters: 0, nodes: 0, unlocks: 0, evolutionLevels: 0 }
+    runPersistenceTransactionSync({
+        domain: "admin", playerId, operation: "admin_character_awake_revoke",
+    }, () => {
+        for (const target of targets) {
+            for (const nodeId of target.awaken) {
+                updatePlayerCharacterManaNodeAwakeLevelSync(playerId, target.characterId, nodeId, 0)
+                result.nodes++
+            }
+            if (target.unlocked) {
+                deletePlayerCharacterAwakeUnlockSync(playerId, target.characterId)
+                result.unlocks++
+            }
+            const evolutionLevel = target.evolutionLevel > 1 ? 1 : target.evolutionLevel
+            if (evolutionLevel !== target.evolutionLevel) {
+                updatePlayerCharacterSync(playerId, target.characterId, { evolutionLevel })
+                result.evolutionLevels++
+            }
+            result.characters++
+        }
+    })
+    return result
+}
+
 export interface CharacterProgressView {
     rarity: number
     /** 该角色能达到的经验上限（含超限扩展） */
@@ -311,6 +387,7 @@ export function describePlayerCharacterProgress(playerId: number): Record<number
     const characters = getPlayerCharactersSync(playerId)
     const learnedNodes = getPlayerCharactersManaNodesSync(playerId)
     const awakeLevels = getPlayerCharactersManaNodeAwakeLevelsSync(playerId)
+    const awakeCharacters = getAwakeCharacterIdSet()
     const result: Record<number, CharacterProgressView> = {}
 
     for (const [idText, character] of Object.entries(characters)) {
@@ -323,6 +400,8 @@ export function describePlayerCharacterProgress(playerId: number): Record<number
         const awakeOf = awakeLevels[idText] ?? {}
         const maxOverLimit = getCharacterMaxOverLimit(characterId, rarity)
         const expCap = maxOverLimit === undefined ? null : (getCharacterExpCap(characterId, rarity, maxOverLimit) ?? null)
+        // 没有觉醒内容的角色进化上限是 1，见 getAwakeCharacterIdSet
+        const targetEvolution = awakeCharacters.has(characterId) ? 2 : 1
 
         result[characterId] = {
             rarity,
@@ -332,7 +411,7 @@ export function describePlayerCharacterProgress(playerId: number): Record<number
             nodeTotal: all.length,
             nodeOwned: all.filter(nodeId => learned.has(nodeId)).length,
             awakeOwned: board1.filter(nodeId => (awakeOf[nodeId] ?? 0) >= MAX_MANA_NODE_AWAKE_LEVEL).length,
-            targetEvolution: board1.length > 0 ? Math.max(character.evolutionLevel, MAX_MANA_NODE_AWAKE_LEVEL + 1) : character.evolutionLevel,
+            targetEvolution: board1.length > 0 ? Math.max(character.evolutionLevel, targetEvolution) : character.evolutionLevel,
         }
     }
     return result

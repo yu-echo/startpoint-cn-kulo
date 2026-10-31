@@ -39,6 +39,7 @@ import {
     describePlayerCharacterProgress,
     parseCharacterMaxScopes,
     planPlayerCharacterMax,
+    revokeUnauthorizedAwakeStateSync,
 } from "../../lib/admin-character-max";
 import { runPersistenceTransaction, runPersistenceTransactionSync } from "../../lib/persistence-coordinator";
 import { ServerClosingError } from "../../lib/shutdown-state";
@@ -535,6 +536,18 @@ const routes = async (fastify: FastifyInstance) => {
 
     fastify.post("/:id/characters/max", characterMaxHandler(false))
     fastify.post("/:id/character/:code/max", characterMaxHandler(true))
+
+    // 撤回「没有觉醒内容却被觉醒」的角色状态（数据修复用，幂等）
+    fastify.post("/:id/characters/revoke-unauthorized-awake", async (request: FastifyRequest, reply: FastifyReply) => {
+        const playerId = Number((request.params as { id: string }).id)
+        if (isNaN(playerId)) return reply.status(400).send({ error: "无效的玩家 ID" })
+        if (!getPlayerSync(playerId)) return reply.status(404).send({ error: "未找到该玩家存档" })
+        try {
+            return reply.send({ ok: true, ...revokeUnauthorizedAwakeStateSync(playerId) })
+        } catch (e: any) {
+            return reply.status(500).send({ error: `撤回失败：${e?.message ?? e}` })
+        }
+    })
 
     // Add/set item
     fastify.post("/:id/item", async (request: FastifyRequest, reply: FastifyReply) => {
