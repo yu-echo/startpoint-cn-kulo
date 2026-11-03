@@ -1,0 +1,192 @@
+# 补丁边改动记录索引
+
+每条测试服补丁边一行，按版本倒序。「记录」是本目录下的改动说明；「Release」是 startpoint-cn 上对应的补丁包下载（1.4.220–1.4.224 合在 patches-1.4.224，1.4.286–1.4.348 合在 patches-1.4.348,1.4.218 以前在 snapshot-1.4.218-20261016）。
+
+新增一条边时：改动说明放进本目录（文件名以 `-<版本>.md` 结尾），再在这张表顶部加一行。
+
+| 版本 | 内容 | 记录 | Release |
+|---|---|---|---|
+| 1.4.351 | 南瓜大爆炸结算后清残留蜡烛 | — | [patches-1.4.351](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.351) |
+| 1.4.350 | 五重boss血量35%与狂暴可驱散 | — | [patches-1.4.351](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.351) |
+| 1.4.349 | 五重多boss状态去重 | — | [patches-1.4.351](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.351) |
+| 1.4.348 | 五重驱散阶梯与减益下调 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.347 | 光暗龙合击切属性去觉醒门 | [光暗龙合击切属性-1.4.347](光暗龙合击切属性-1.4.347.md) | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.346 | 地狱南瓜 P3 大爆炸比例伤害 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.345 | 水杰拉德能力3 Fever开关修复与文案 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.344 | 地狱南瓜 P3 烛心修复 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.343 | (测试服) 杰拉德格挡固有图标 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.342 | (测试服) 深渊之兽能力3收成3条（召唤物保留不放技能） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.341 | (测试服) 地狱南瓜 P3 Fever 试炼 20→30 秒 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.340 | (测试服) 战斗伤害缩写全套 k/M/B/T 字形（配 1008094） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.339 | (测试服) 地狱南瓜 P2 减特效（冲击波/足迹弹/炸弹雨与 P3 同一套） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.337 | (测试服) 水杰拉德完美防御改为能力6强化技能效果(5秒) | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.336 | (测试服) 武器裂罅主题：幻想/诅咒/领主/星光/星尘/星辉十种 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.335 | (测试服) 地狱南瓜 P1 小南瓜死亡冲击波 3 道→1 道（总伤不变） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.332 | (测试服) 编队卡脸位修正 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.331 | (测试服) 深渊之兽技能特效变淡减量 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.330 | (测试服) boss转可玩26角色编队卡/头像图标特写+歼灭者系立绘摆正 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.329 | (测试服) 五重与地狱南瓜取消续战 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.328 | (测试服) 固有状态上限修正（龙王显现/收集追击） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.327 | (测试服) 深渊之兽能力技收束、特效减半合并伤害 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.326 | (测试服) 地狱南瓜场地：删 Fever 传送洞、技能瓶居中 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.325 | (测试服) 武器裂罅主题：精灵兽裂罅/深渊裂罅 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.324 | (测试服) 战斗伤害数字加 M 单位 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.323 | (测试服) 杰拉德格挡（1.4.323） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.322 | (测试服) 地狱南瓜P3弹幕减半单发加伤、水晶扫射/烛心爆炸对齐动画可格挡 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.321 | (测试服) 地狱南瓜P3再降压：普通伤害×0.875、比例伤害3.5%/25% | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.320 | (测试服) 五重模式全部boss血量减半 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.318 | (测试服) 武器裂罅移植 tables | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.317 | (测试服) 武器裂罅移植 atlas | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.316 | (测试服) 平衡表10-27 01:40-10:52：露迪/稻穗/盾牌座/芙拉菲/夏可缇/贝尔塞提娅 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.315 | (测试服) 水杰拉德立绘换新（觉醒前晴日天台/觉醒后月下守望） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.314 | (测试服) 水杰拉德专属铭牌两款（邮件发放） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.313 | (测试服) 平衡表10-27 00:46-01:24：盾牌座/芙拉菲/罗尔夫/希尔媞/赛瑞斯/凯尔+基诺维/莫弥亚吞噬补漏 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.312 | (测试服) 12 款 MOD 角色专属铭牌（邮件发放） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.311 | (测试服) 测试员铭牌改版（底带统一不裁、重绘若干张） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.310 | (测试服) 平衡表10-27 00:09：水杰拉德Fever PF额外0.2倍、赛瑞斯Down容易度+150% | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.307 | (测试服) 平衡表10-26 21:47：水杰拉德队长技PF倍率、赛瑞斯队长技/能力1-4 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.305 | (测试服) 测试员铭牌尺寸统一（底带对齐官方 6–43 行） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.304 | (测试服) 撤回深渊EX 26/30层血量-40%（打完报错） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.303 | (测试服) 平衡表10-26晚：诅咒面具/停摆怀表解咒、深渊EX 26/30层血量-40% | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.302 | (测试服) 十款测试员专属铭牌与深渊商店 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.301 | (测试服) 通用续战消耗配置：五重/地狱南瓜续战改超限结晶×1（需客户端1008091） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.300 | (测试服) 平衡表10-26：诅咒武器解咒5把/墨斯伊克 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.299 | (测试服) 地狱南瓜P3降压（伤害×0.8、鬼火追踪球频率×2/3） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.298 | (测试服) 诅咒武器实装后调整（10-26 意见表） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.297 | (测试服) 白梅斩铁进化技能再×1.2 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.296 | (测试服) 平衡表10-25深夜：墨斯伊克/白虎/凯尔/红蝮蛇/白梅斩铁 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.295 | 贝瑞塔能力一览显示清理 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.294 | (测试服) 平衡表10-25夜：白虎/白梅斩铁/深渊之兽数值 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.293 | 贝瑞塔重奏准备修复 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.292 | (测试服) 平衡表10-25晚：莫弥亚/芙拉菲/澄波响/盾牌座/希尔媞/墨斯伊克/白虎/瓦格纳(超限)/凯尔 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.291 | (本地待验) 贝瑞塔（雷鸣二重奏） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.290 | (测试服) 深渊之兽战斗图集重排：晶体/钻洞坑/钻入/钻出5张整region重排，面积-62%，画面不变 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.289 | (测试服) 平衡表10-25下午：白虎能力1原生能力伤害（修C8016）与追击倍率/特克托技能×1.1与重炮展开25秒/凯尔连击上限999 | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.288 | 深渊之兽眷属改回自身攻击力（175测试服，需p10） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.287 | (测试服) 队长技效果挪回队长技表（10 角色）＋凯尔队长技调整（需 p10） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.286 | 深渊之兽觉醒与逆境延长至15秒（175测试服） | — | [patches-1.4.348](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.348) |
+| 1.4.285 | 平衡表 10-25：克劳斯、贝尔赛蒂亚、白虎、赛瑞斯、莉莉丝、雷吉斯、特克托 | [角色平衡改动-1.4.285](角色平衡改动-1.4.285.md) | [patches-1.4.285](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.285) |
+| 1.4.282 | 头目角色能力1头目限制文案缩短：27 个可玩头目统一成白虎的一句，只改面板文案 | [头目限制文案-1.4.282](头目限制文案-1.4.282.md) | [patches-1.4.282](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.282) |
+| 1.4.281 | 平衡表 10-24 晚：秋灯稻穗、白虎、莫弥亚、拉姆斯、克劳斯、贝尔赛蒂亚、八岐大蛇超级+血量分配 | [角色平衡改动-1.4.281](角色平衡改动-1.4.281.md) | [patches-1.4.281](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.281) |
+| 1.4.280 | 深渊之兽数据重做（候选版，觉醒与能力计数待客户端扩展） | [深渊之兽-1.4.280](深渊之兽-1.4.280.md) | [patches-1.4.280](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.280) |
+| 1.4.279 | 平衡表 10-24 下午：莫弥亚直击与暖机、墨斯伊克龙族加攻与充能、午后奈芙提姆队长技与协力球、普莉姆拉进化技能倍率 | [角色平衡改动-1.4.279](角色平衡改动-1.4.279.md) | [patches-1.4.279](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.279) |
+| 1.4.278 | 1.4.277 热修：诺瓦 / 蕾薇乘区副本全队加成角色组空串改为全部角色，修「null 角色」不生效 | [新角色-诺瓦蕾薇乘区副本热修-1.4.278](新角色-诺瓦蕾薇乘区副本热修-1.4.278.md) | [patches-1.4.278](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.278) |
+| 1.4.277 | 新角色：诺瓦 / 蕾薇 乘区副本 22 人（光暗 × 乘区 5/6/7/8/9 + 共鸣特别版），去主位限制 | [新角色-诺瓦蕾薇乘区副本-1.4.277](新角色-诺瓦蕾薇乘区副本-1.4.277.md) | [patches-1.4.277](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.277) |
+| 1.4.276 | 平衡表 10-24：白虎小重做；莫弥亚暗队直击基础倍率、普莉姆拉进化技能直击化与赛瑞斯调整；冲浪板补 3 秒 CT；八岐大蛇超级+ 血量减半 | [角色平衡改动-1.4.276](角色平衡改动-1.4.276.md) | [patches-1.4.276](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.276) |
+| 1.4.275 | 平衡表 10-23：光暗龙抗降、白狼杰拉德、祈月之穗稻穗、星川莉莉、克劳斯、水杰拉德、瓦格纳（超限） | [角色平衡改动-1.4.275](角色平衡改动-1.4.275.md) | [patches-1.4.275](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.275) |
+| 1.4.274 | 普通深渊 / EX boss 血量改为 10% / 20%；莫弥亚、瓦格纳（超限）与万圣稻穗平衡调整 | [深渊血量与平衡-1.4.274](深渊血量与平衡-1.4.274.md) | [patches-1.4.274](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.274) |
+| 1.4.273 | 平衡表 10-22 第三批：瓦格纳（超限）、水杰拉德、杰拉尔、水灵幽魂、红蝮蛇与 6 只小动物 | [角色平衡改动-1.4.273](角色平衡改动-1.4.273.md) | [patches-1.4.273](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.273) |
+| 1.4.272 | 地狱南瓜：普通至超级+ 精简机制、血量与掉落调整，糖果图标换南瓜；地狱档不变 | [地狱南瓜-1.4.272](地狱南瓜-1.4.272.md) | [patches-1.4.272](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.272) |
+| 1.4.271 | 1.4.270 热修：瓦格纳（超限）觉醒后能力6 次数上限改回无上限 | [角色平衡改动-1.4.271](角色平衡改动-1.4.271.md) | [patches-1.4.271](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.271) |
+| 1.4.270 | 平衡表 10-21 第二批：斩铁、瓦格纳（超限）、光暗龙、杰拉德、中秋稻穗、夏日莉莉丝、护花使龙（超限）、拉姆斯 | [角色平衡改动-1.4.270](角色平衡改动-1.4.270.md) | [patches-1.4.270](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.270) |
+| 1.4.269 | 地狱南瓜：P3 可驱散层 20→30 并按层位轮转补层、四色召唤与鬼火改确定性、P1 第 3 轮 PF 南瓜下移 | [地狱南瓜-1.4.269](地狱南瓜-1.4.269.md) | [patches-1.4.269](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.269) |
+| 1.4.268 | 平衡表 10-21：瓦格纳（超限）觉醒后加强、光暗龙觉醒后去掉视为光/暗属性、万圣稻穗词条合并 | [角色平衡改动-1.4.268](角色平衡改动-1.4.268.md) | [patches-1.4.268](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.268) |
+| 1.4.267 | 地狱南瓜：P1 出场即免疫、P2 只吃技能、P3 开场清槽与减伤底座、冲击波改比例、P3 狂暴改出招加速 | [地狱南瓜-1.4.267](地狱南瓜-1.4.267.md) | [patches-1.4.267](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.267) |
+| 1.4.266 | 地狱南瓜：修 1.4.262 回归（单人 P1 小南瓜不出、联机 P3 卡顿临时止血） | [地狱南瓜-1.4.266](地狱南瓜-1.4.266.md) | [patches-1.4.266](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.266) |
+| 1.4.265 | 水杰拉德合击强化弹射通用化（需 v35l） | [水杰拉德合击强化弹射通用化-1.4.265](水杰拉德合击强化弹射通用化-1.4.265.md) | [patches-1.4.265](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.265) |
+| 1.4.264 | 平衡表 10-20：万圣露迪改全领域判定、中秋丝缇涅尔在最近敌人前展开月相仪 | [技能形态-1.4.264](技能形态-1.4.264.md) | [patches-1.4.264](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.264) |
+| 1.4.263 | 平衡表 10-20 晚：阿鲁玛德乌斯/基诺维/白梅斩铁 | [角色平衡改动-1.4.263](角色平衡改动-1.4.263.md) | [patches-1.4.263](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.263) |
+| 1.4.262 | 地狱南瓜：弱体耐性、全程不晕、P1 固定轮次表、P2 提速与召唤加快、jack×0.8 / rage×1.5、单人 = 共斗血量 | [地狱南瓜-1.4.262](地狱南瓜-1.4.262.md) | [patches-1.4.262](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.262) |
+| 1.4.261 | 地狱南瓜：P1 三轮随机试炼、血量对标决战机兵、控制免疫、Fever 眩晕一次、Fever 槽 2500、10% 技能瓶 | [地狱南瓜-1.4.261](地狱南瓜-1.4.261.md) | [patches-1.4.261](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.261) |
+| 1.4.260 | 地狱南瓜：万圣糖果 10009701 的 c4 图标切到 item_icon 图集子纹理 | [地狱南瓜-1.4.260](地狱南瓜-1.4.260.md) | [patches-1.4.260](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.260) |
+| 1.4.259 | 地狱南瓜 新降临讨伐「为你奏响的镇魂歌」（活动 300097）：五档、P1–P3 连战、自制地形与 BGM；服务端 7 个 JSON 只追加 | [地狱南瓜-1.4.259](地狱南瓜-1.4.259.md) | [patches-1.4.259](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.259) |
+| 1.4.258 | 万圣稻穗（169977）：追加角色与配套资源，服务端 5 个 JSON 只追加（kulo #75） | [万圣稻穗-1.4.258](万圣稻穗-1.4.258.md) | [patches-1.4.258](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.258) |
+| 1.4.257 | 平衡表 10-20：克劳斯数值调整与队长技文案整合 | [角色平衡改动-1.4.257](角色平衡改动-1.4.257.md) | [patches-1.4.257](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.257) |
+| 1.4.256 | 面板文案：强化弹射伤害/贯穿延长写明全队，敌人冻结统一为官方「迟缓」 | [面板文案全队与迟缓-1.4.256](面板文案全队与迟缓-1.4.256.md) | [patches-1.4.256](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.256) |
+| 1.4.255 | 平衡表 10-19 晚：14 个角色数值调整 | [角色平衡改动-1.4.255](角色平衡改动-1.4.255.md) | [patches-1.4.255](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.255) |
+| 1.4.254 | 贝尔赛蒂亚：按敌人弱体数加直接攻击计算次数（需 v35k） | [贝尔赛蒂亚弱体直击次数-1.4.254](贝尔赛蒂亚弱体直击次数-1.4.254.md) | [patches-1.4.254](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.254) |
+| 1.4.253 | 水杰拉德修正 1.4.253 | [水杰拉德治疗转伤害-1.4.253](水杰拉德治疗转伤害-1.4.253.md) | [patches-1.4.253](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.253) |
+| 1.4.252 | 赛瑞斯 PF4 中途消失修正 1.4.252 | [赛瑞斯龙形标记修正-1.4.252](赛瑞斯龙形标记修正-1.4.252.md) | [patches-1.4.252](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.252) |
+| 1.4.251 | 平衡表：菲莉亚/克劳斯/特克托 | [角色平衡改动-1.4.251](角色平衡改动-1.4.251.md) | [patches-1.4.251](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.251) |
+| 1.4.250 | 噬龙者：补全 5 个反应堆追击 | [噬龙者追击补全-1.4.250](噬龙者追击补全-1.4.250.md) | [patches-1.4.250](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.250) |
+| 1.4.249 | 面板与实际生效修正（作者 1019 裁定） | [面板审计第二批-1.4.249](面板审计第二批-1.4.249.md) | [patches-1.4.249](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.249) |
+| 1.4.248 | 校园奈芙能力3/4轮询降频(卡顿) | [校园奈芙卡顿修正-1.4.248](校园奈芙卡顿修正-1.4.248.md) | [patches-1.4.248](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.248) |
+| 1.4.247 | 修复：按层数的门写成数个数，叠层效果从未发动 | [计数门槛修正-1.4.247](计数门槛修正-1.4.247.md) | [patches-1.4.247](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.247) |
+| 1.4.246 | 水杰拉德修正 1.4.246 | [水杰拉德v35j数据-1.4.246](水杰拉德v35j数据-1.4.246.md) | [patches-1.4.246](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.246) |
+| 1.4.245 | 修复：上限1固有状态按层数判断从未生效 | [固有上限1修正-1.4.245](固有上限1修正-1.4.245.md) | [patches-1.4.245](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.245) |
+| 1.4.244 | 水杰拉德修正 1.4.244 | [水杰拉德全程超限-1.4.244](水杰拉德全程超限-1.4.244.md) | [patches-1.4.244](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.244) |
+| 1.4.243 | 修复：塞里奥尔能力1属性、全队对象组为空致能力不生效 | [数据修正-1.4.243](数据修正-1.4.243.md) | [patches-1.4.243](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.243) |
+| 1.4.242 | 水杰拉德修正 1.4.242 | [水杰拉德档案修正-1.4.242](水杰拉德档案修正-1.4.242.md) | [patches-1.4.242](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.242) |
+| 1.4.241 | 水杰拉德：满血成员护盾、合击强化弹射类型、头像去底色 | [水杰拉德修正-1.4.241](水杰拉德修正-1.4.241.md) | [patches-1.4.241](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.241) |
+| 1.4.240 | 平衡表：泽赫尔/克劳斯/贝尔赛蒂亚/塞里奥尔/菲莉亚 | [角色平衡改动-1.4.240](角色平衡改动-1.4.240.md) | [patches-1.4.240](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.240) |
+| 1.4.239 | 新角色 水杰拉德（雨后天台的白狼骑士） | [新角色-水杰拉德-1.4.239](新角色-水杰拉德-1.4.239.md) | [patches-1.4.239](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.239) |
+| 1.4.238 | 平衡表·需 v35 客户端：莫弥亚/凯尔/贝尔赛蒂亚/克劳斯 直击基础倍率 | [角色平衡改动-1.4.238](角色平衡改动-1.4.238.md) | [patches-1.4.238](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.238) |
+| 1.4.237 | 平衡表：蕾贝卡/塞里奥尔/露迪/莫弥亚/克劳斯/贝尔赛蒂亚 | [角色平衡改动-1.4.237](角色平衡改动-1.4.237.md) | [patches-1.4.237](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.237) |
+| 1.4.236 | 平衡表：白/基诺维/雷吉斯/黑/凯尔/澄波响/妮可拉 | [角色平衡改动-1.4.236](角色平衡改动-1.4.236.md) | [patches-1.4.236](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.236) |
+| 1.4.235 | 深渊武器魂珠说明中文化 | [角色平衡改动-1.4.235](角色平衡改动-1.4.235.md) | [patches-1.4.235](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.235) |
+| 1.4.234 | 悖论/诅咒武器魂珠可装备属性修正 | [角色平衡改动-1.4.234](角色平衡改动-1.4.234.md) | [patches-1.4.234](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.234) |
+| 1.4.233 | 终始之龙超限结晶掉落表补客户端行 | [角色平衡改动-1.4.233](角色平衡改动-1.4.233.md) | [patches-1.4.233](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.233) |
+| 1.4.232 | 平衡表：瑞西塔尔/塞里奥尔/露迪/深渊之兽/莫弥亚/玛格诺斯×2 | [角色平衡改动-1.4.232](角色平衡改动-1.4.232.md) | [patches-1.4.232](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.232) |
+| 1.4.231 | 瑞西塔尔/tweyen_light 能力4 按设计删追击行 | [角色平衡改动-1.4.231](角色平衡改动-1.4.231.md) | [patches-1.4.231](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.231) |
+| 1.4.230 | 追击伤害注明对象＋队长前置效果文字移到队长技 | [角色平衡改动-1.4.230](角色平衡改动-1.4.230.md) | [patches-1.4.230](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.230) |
+| 1.4.229 | 平衡表：深渊之兽/休尔特(超限)/瑞西塔尔/塞里奥尔/露迪 | [角色平衡改动-1.4.229](角色平衡改动-1.4.229.md) | [patches-1.4.229](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.229) |
+| 1.4.228 | 万圣瑞西塔尔技能补回伤害/麻痹/加攻/减棺柩 | [角色平衡改动-1.4.228](角色平衡改动-1.4.228.md) | [patches-1.4.228](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.228) |
+| 1.4.227 | MOD角色面板文案与技能描述规范化 | [diff-1.4.227](diff-1.4.227.md)、[角色平衡改动-1.4.227](角色平衡改动-1.4.227.md) | [patches-1.4.227](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.227) |
+| 1.4.226 | 能力面板覆盖文案补独立伤害乘区标签 | [角色平衡改动-1.4.226](角色平衡改动-1.4.226.md) | [patches-1.4.226](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.226) |
+| 1.4.225 | 休尔特超限旋风倍率×10 + 平衡表：黑/休尔特(超限)/墨斯伊克 | [角色平衡改动-1.4.225](角色平衡改动-1.4.225.md) | [patches-1.4.225](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.225) |
+| 1.4.224 | 校园奈芙提姆：Fever 召唤协力球的技能强化从队长技挪回能力1 |  |  |
+| 1.4.223 | 角色平衡 1017：赛瑞斯/杰拉尔/稻穗/米娅/深渊之兽/妮可拉/莉莉丝/玛格诺斯 |  |  |
+| 1.4.222 | 万圣塞里奥尔能力5释放PF3报错修复 |  |  |
+| 1.4.221 | 万圣四位新角色：露迪/莫弥亚/塞里奥尔/瑞西塔尔 |  |  |
+| 1.4.220 | 测试服与正式服版本对齐 |  |  |
+| 1.4.219 | 炎龙王超限特效闪烁修复(恢复原版) |  | [patches-1.4.219](https://github.com/kuronzzhan-droid/startpoint-cn/releases/tag/patches-1.4.219) |
+| 1.4.218 | 6 角色切换立绘 C8004 修复 |  |  |
+| 1.4.217 | 碧切换立绘 C8004 修复 |  |  |
+| 1.4.216 | 碧 169978 角色+称号(灰 1.4.135 重切) |  |  |
+| 1.4.215 | 角色平衡1016 | [角色平衡改动-1.4.215](角色平衡改动-1.4.215.md) |  |
+| 1.4.214 | 瓦格纳觉醒火柱降亮 |  |  |
+| 1.4.213 | 凉月词条列修复 |  |  |
+| 1.4.212 | 十项收尾 |  |  |
+| 1.4.211 | 瓦格纳超限调整 |  |  |
+| 1.4.210 | 超限结晶图标修复 |  |  |
+| 1.4.209 | 赛瑞斯重做 |  |  |
+| 1.4.208 | 护花使龙超限 Lv120 |  |  |
+| 1.4.207 | 炎龙王超限 Lv120 |  |  |
+| 1.4.206 | 罗尔夫月技能重做:6连斩+重斩+爆击 |  |  |
+| 1.4.205 | 罗尔夫月技能完整按直击结算(需damage-type-rules-v1) |  |  |
+| 1.4.204 | 领主币魂珠兑换页 |  |  |
+| 1.4.203 | 角色平衡1015:灼原狮王/基诺维/机车玛格诺斯/夏琳 | [角色平衡改动-1.4.203](角色平衡改动-1.4.203.md) |  |
+| 1.4.202 | 召唤物变量表补100级(高难2026) |  |  |
+| 1.4.201 | 基诺维技能说明补技能表+假人道具等级行(修C8601) | [角色平衡改动-1.4.201](角色平衡改动-1.4.201.md) |  |
+| 1.4.200 | 基诺维技能降抗×0.8+文本;灼原狮王降抗还原 | [角色平衡改动-1.4.200](角色平衡改动-1.4.200.md) |  |
+| 1.4.199 | 高难任务敌人补100级(修U_3be147) |  |  |
+| 1.4.198 | 角色平衡1014:风巨蜥/凯尔/黑/灼原狮王/机车玛格诺斯 | [角色平衡改动-1.4.198](角色平衡改动-1.4.198.md) |  |
+| 1.4.197 | 角色平衡1012:魔王/杰拉德/夏琳/白/秋灯九尾/克劳斯/碧安卡/风巨蜥/墨斯伊克/斩铁 | [角色平衡改动-1.4.197](角色平衡改动-1.4.197.md) |  |
+| 1.4.196 | 角色平衡1010:水灵幽魂/克劳斯/拉夫马诺/见岛勇希/黑/魔王/杰拉德 | [角色平衡改动-1.4.196](角色平衡改动-1.4.196.md) |  |
+| 1.4.195 | 月狼立绘重选+面部特写图标 |  |  |
+| 1.4.194 | 立绘重设计图标改面部特写(保留场景) |  |  |
+| 1.4.193 | GM武器5990006+杰拉德语音重录 |  |  |
+| 1.4.192 | 立绘重设计:杰拉德/杰拉尔觉醒前、歌狼觉醒前后 |  |  |
+| 1.4.191 | 两池美术(重切staging 134) |  |  |
+| 1.4.190 | 中秋MOD角色迁池(重切staging 133) |  |  |
+| 1.4.189 | 中秋国庆/八岐收尾(重切staging 132) |  |  |
+| 1.4.188 | 凉月159992(重切staging 131) |  |  |
+| 1.4.187 | 五重登场弱体加重+画龙/水鬼降伤 |  |  |
+| 1.4.186 | 五重boss血量再减半+增益/登场弱体 |  |  |
+| 1.4.185 | 杰拉尔追加两行平衡 |  |  |
+| 1.4.184 | 1008晚角色平衡6人+芙拉菲挪队长技 | [角色平衡改动-1.4.184](角色平衡改动-1.4.184.md) |  |
+| 1.4.183 | 罗尔夫非队长限制回槽+深渊镰刀连击充能CT5s |  |  |
+| 1.4.182 | 芙拉菲充能上限999+施技充能(需v23) |  |  |
+| 1.4.181 | 超·假人7关 |  |  |
+| 1.4.180 | 能量瓶/伤害圈木人 |  |  |
+| 1.4.179 | 凯尔载体状态改名hidden_(配v23隐藏) |  |  |
+| 1.4.178 | 全伤害木人们(多体) |  |  |
+| 1.4.177 | 全伤害木人 |  |  |
+| 1.4.176 | 风巨蜥按表平衡 |  |  |
+| 1.4.175 | 凯尔直击倍率数据化10x+5%/连击(只给v21) |  |  |
+| 1.4.174 | 凯尔充能上限回200%、去自身+999%(只给v20) |  |  |
+| 1.4.173 | 凯尔充能999%(只给v20) |  |  |
+| 1.4.172 | 凯尔强化充能速度移到队长技(配v19) |  |  |
+| 1.4.171 | 撤凯尔过渡直击行(只配新APK) |  |  |
+| 1.4.170 | 凯尔强化充能速度(需新APK生效,旧APK安全) |  |  |
+| 1.4.169 | 凯尔特殊PF追加结算改用静默标记 |  |  |
+| 1.4.168 | 凯尔直击基础10倍+随连击成长(数据过渡版) |  |  |
+| 1.4.167 | 凯尔队长技连击加直击 |  |  |
+| 1.4.166 | 凯尔队长技直击强化+特殊PF随月牙增长 |  |  |
+| 1.4.165 | 凯尔月牙叠层去掉状态闪光 |  |  |
+| 1.4.164 | 魔王/深渊之兽/歼灭者基础数值降到五星标准 |  |  |
+| 1.4.163 | 五重全部boss血量-50% |  |  |
+| 1.4.162 | 1008角色平衡第三次：澄波响/索恩/杰拉德 |  |  |
+| 1.4.161 | 基诺维按表平衡 |  |  |
+| 1.4.160 | 1008角色平衡按表修正 |  |  |
+| 1.4.159 | 1008角色平衡：杰拉德/稻穗/夏日白/罗尔夫 | [角色平衡改动-1.4.159](角色平衡改动-1.4.159.md) |  |

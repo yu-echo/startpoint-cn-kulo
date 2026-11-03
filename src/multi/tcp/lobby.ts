@@ -589,6 +589,9 @@ async function handleEnterComs(
     const npcMates: any[] = []
     const recruitedMates = selectStableNpcSlots(recruitResult.recruitedMates, needNPCs)
     room.npc_party_by_com_id ??= {}
+    // Test server: COM seats copy the host's current party instead of drawing
+    // from the player party pool (author 1009). Off unless NPC_COPY_HOST_PARTY is set.
+    const copyHostParty = /^(1|true|yes|on)$/i.test(process.env.NPC_COPY_HOST_PARTY ?? "")
     for (const recruited of recruitedMates) {
         const partyKey = String(recruited.com_id)
         const cached = room.npc_party_by_com_id[partyKey]
@@ -596,7 +599,7 @@ async function handleEnterComs(
             delete room.npc_party_by_com_id[partyKey]
         }
     }
-    const missingPartyCount = recruitedMates.filter(recruited =>
+    const missingPartyCount = copyHostParty ? 0 : recruitedMates.filter(recruited =>
         !room.npc_party_by_com_id[String(recruited.com_id)]).length
     // Select only parties for COM seats this room has never used. A rematch
     // whose complete COM roster is cached performs no pool scan or random draw.
@@ -623,12 +626,15 @@ async function handleEnterComs(
         // custom-asset combination and make the AIR client's 4096 atlas packer
         // fail with U_1d93f4 during auto-repeat.
         const partyKey = String(comId)
-        let party = room.npc_party_by_com_id[partyKey]
-        while (!party && nextPartyIndex < npcParties.length) {
+        let party = copyHostParty
+            ? (isNpcPartyAllowedInRoom(room.category, room.quest_id, hostMate.party)
+                ? structuredClone(hostMate.party) : undefined)
+            : room.npc_party_by_com_id[partyKey]
+        while (!copyHostParty && !party && nextPartyIndex < npcParties.length) {
             const candidate = npcParties[nextPartyIndex++]
             if (isNpcPartyAllowedInRoom(room.category, room.quest_id, candidate)) party = candidate
         }
-        if (!party && isNpcPartyAllowedInRoom(room.category, room.quest_id, hostMate.party)) {
+        if (!copyHostParty && !party && isNpcPartyAllowedInRoom(room.category, room.quest_id, hostMate.party)) {
             party = hostMate.party
         }
         if (!party || !isNpcPartyAllowedInRoom(room.category, room.quest_id, party)) {
