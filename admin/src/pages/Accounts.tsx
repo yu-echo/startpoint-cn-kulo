@@ -532,13 +532,23 @@ export default function Accounts() {
                 return (
                     <div className="account-save-cell">
                         <div className="account-save-head">
-                            <Typography.Text strong ellipsis={{ tooltip: row.defaultPlayerName ?? undefined }}>
-                                {row.defaultPlayerName ?? `#${row.defaultPlayerId}`}
-                            </Typography.Text>
+                            <a
+                                href={`/admin/players/${row.defaultPlayerId}`}
+                                className="account-save-name-link"
+                                aria-label={`打开存档 ${row.defaultPlayerId} 的玩家详情`}
+                                onClick={event => {
+                                    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+                                    event.preventDefault(); navigate(`/players/${row.defaultPlayerId}`)
+                                }}
+                            >
+                                <Typography.Text strong ellipsis={{ tooltip: row.defaultPlayerName ?? undefined }}>
+                                    {row.defaultPlayerName ?? `#${row.defaultPlayerId}`}
+                                </Typography.Text>
+                            </a>
                             <Tag color={isActive ? "green" : "blue"}>{isActive ? "当前活动" : "账号默认"}</Tag>
                         </div>
                         <Typography.Text type="secondary" className="account-cell-meta">
-                            共 {row.saveCount} 个存档
+                            存档 #{row.defaultPlayerId} · 共 {row.saveCount} 个存档
                         </Typography.Text>
                     </div>
                 )

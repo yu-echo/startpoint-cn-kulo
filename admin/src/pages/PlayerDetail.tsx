@@ -350,7 +350,21 @@ export function PlayerDetail() {
 
     if (isNaN(pid)) return <Card><Text type="danger">无效的玩家 ID</Text></Card>
     if (isLoading) return <StateCard><Spin size="large" /></StateCard>
-    if (isError || !data) return <Card><Space><Text type="danger">玩家详情加载失败</Text><Button onClick={() => refetch()}>重试</Button></Space></Card>
+    if (isError || !data) return (
+        <Card>
+            <Space direction="vertical" size={12}>
+                <Space>
+                    <Text type="danger">玩家详情加载失败</Text>
+                    <Button onClick={() => refetch()}>重试</Button>
+                    <Button onClick={() => navigate("/accounts")}>返回账号列表</Button>
+                </Space>
+                <Text type="secondary">
+                    地址里的 #{pid} 必须是「存档 ID」（存档列表里「存档 #9」那个 # 后面的数字），
+                    不是玩家 UID、也不是登录账号。玩家 UID 是 9 位数字，存档 ID 一般只有 1~3 位。
+                </Text>
+            </Space>
+        </Card>
+    )
 
     const { player } = data
     const { characters = [], items = [], equipment = [], questProgress = [], drawnQuests = [] } = sectionQuery.data ?? {}
