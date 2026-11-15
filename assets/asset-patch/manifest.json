@@ -30305,6 +30305,37 @@
           ]
         }
       ]
+    },
+    {
+      "id": "gerald-moon-nerf-1.4.259",
+      "type": "patch",
+      "name": "光杰拉德月耀一闪：当前生命5%→2.5%，移除+1%叠加与<5%斩杀",
+      "description": "white_wolf_gerald lv1/lv2 skill DSL：条件攻击(5%,每发动+1%,<5%击败) 替换为固定当前生命2.5%比例伤害。仅数据，无客户端改动。",
+      "version": "1.4.259",
+      "depends_on": "1.4.258",
+      "enabled": true,
+      "archive": "pinball-1.4.258-1.4.259-1-gerald-moon-nerf-prod.zip",
+      "archive_size": 3695,
+      "chain": [
+        "pinball-1.4.258-1.4.259-1-gerald-moon-nerf-prod.zip"
+      ],
+      "files": [
+        "production/upload/03/d2cf46a0dce90bf3ae48fd6ec833e401337991",
+        "production/upload/47/98be368c8a6fda2bb10efe13ec03044745e966"
+      ],
+      "archive_integrity": [
+        {
+          "name": "pinball-1.4.258-1.4.259-1-gerald-moon-nerf-prod.zip",
+          "size": 3695,
+          "sha256": "9fc301d2dee662db189ad50c2b76e7a4a5c732647217727e49961219b4fa0792",
+          "members": 2,
+          "files": [
+            "production/upload/03/d2cf46a0dce90bf3ae48fd6ec833e401337991",
+            "production/upload/47/98be368c8a6fda2bb10efe13ec03044745e966"
+          ]
+        }
+      ],
+      "created_at": "2026-11-15"
     }
   ],
   "generated_for": "official active chain"
